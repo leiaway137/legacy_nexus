@@ -1,36 +1,29 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Legacy Nexus
 
-## Getting Started
+Legacy Nexus is a digital ecosystem dedicated to preserving and cross-referencing personal histories, life wisdom, and generational stories.
 
-First, run the development server:
+## The 'Transcript-Only' Philosophy
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+A core pillar of Legacy Nexus is cost-efficiency through a **Transcript-Only architecture**. 
+Rather than hosting and storing expensive multimedia files (heavy audio and high-resolution video), Legacy Nexus relies strictly on optimized text transcripts, curated metadata, and 'Wisdom Tags'. 
+This provides several key advantages:
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. **Near-Zero Storage Costs:** Allowing for high scalability without overhead storage bills.
+2. **Instant Searchability:** NotebookLM-style RAG models can instantly parse, synthesize, and retrieve insights directly from text.
+3. **Simplicity:** Focuses purely on the story and the wisdom generated, distilling long conversations into lightweight insights.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## AI Features (Powered by Gemini)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Taking inspiration from NotebookLM, Legacy Nexus incorporates:
+- **Source-Grounded Insights:** Syntheses and answers generated exclusively from the uploaded legacy transcripts.
+- **The AI Interviewer:** Dynamic sessions that read past context and formulate deep, customized follow-up questions for the LegacyKeeper to answer.
 
-## Learn More
+## Grassroots Growth & Cross-User Referencing
 
-To learn more about Next.js, take a look at the following resources:
+Our most powerful feature is the **NexusLink**—an organic, grassroots expansion strategy.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. **Extraction:** As a LegacyKeeper tells a story, the AI detects references to other individuals involved in those events.
+2. **Cross-Referencing:** The system checks if the referenced person is already a registered user in our global ecosystem.
+    - If they are, the system alerts them, prompting them to share *their* perspective of that exact same shared event.
+3. **Invitation:** If the person is not registered, the system prepares an email invitation, asking them to create an account and share their viewpoint on a story they were just mentioned in.
+4. **Result:** A globally interconnected web of multi-perspective, corroborated histories that naturally grows the user base through the "Seeker-funded" and community-invited mechanism.
