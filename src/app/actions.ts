@@ -1,6 +1,6 @@
 "use server";
 
-import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary } from "@/lib/rag";
+import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview } from "@/lib/rag";
 // @ts-ignore - Bypass Turbopack static ESM export resolution
 import pdfParseModule from "pdf-parse/lib/pdf-parse.js";
 
@@ -68,6 +68,15 @@ export async function chatWithLegacyAction(context: string, question: string, hi
     return await chatWithLegacy(context, question, history);
   } catch (error: any) {
     console.error("Failed to chat with legacy:", error);
+    return "SYSTEM ERROR: " + (error?.message || error);
+  }
+}
+
+export async function conductActiveInterviewAction(history: { role: string; text: string }[], imageBase64?: string): Promise<string> {
+  try {
+    return await conductActiveInterview(history, imageBase64);
+  } catch (error: any) {
+    console.error("Failed to conduct active interview:", error);
     return "SYSTEM ERROR: " + (error?.message || error);
   }
 }

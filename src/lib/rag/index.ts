@@ -1,5 +1,6 @@
 import { Type } from "@google/genai";
 import { ai } from "./client";
+export * from "./interviewer";
 
 export interface TranscriptChunk {
   text: string;
@@ -13,7 +14,7 @@ export async function processTranscriptForRag(transcriptText: string): Promise<T
     For each chunk, provide the text segment and 2-3 relevant "Wisdom Tags" (e.g., "#Resilience", "#CareerPivot").
 
     Raw Transcript:
-    "${transcriptText.substring(0, 30000)}" // System safeguard: Prevent token overrun on massive multi-PDF uploads.
+    "${transcriptText}" // Using full context, Gemini Flash has a 1M token window.
   `;
 
   const response = await ai.models.generateContent({
@@ -62,7 +63,7 @@ export async function generateSynopsis(transcriptContext: string): Promise<strin
       Combine findings elegantly if multiple sources are present.
 
       Sources context:
-      ${transcriptContext.substring(0, 50000)} // limiting context to avoid token blast
+      ${transcriptContext} // Provide full context for highest fidelity questions
     `;
 
     const response = await ai.models.generateContent({
@@ -124,7 +125,7 @@ export async function generateWisdomSummaries(transcriptContext: string): Promis
     The summary should not just be a snippet, but a thought-out synthesis of their perspective.
 
     Raw Transcript Context:
-    "${transcriptContext.substring(0, 80000)}" // Limiting context to avoid token blast, but expanded for more files.
+    "${transcriptContext}" // Using full context
   `;
 
   try {
@@ -183,7 +184,7 @@ export async function chatWithLegacy(transcriptContext: string, question: string
     - If the answer is truly not in the context, say that you don't have enough information, but always try to synthesize related themes if possible.
     
     Context:
-    "${transcriptContext.substring(0, 80000)}"
+    "${transcriptContext}"
     
     Chat History:
     ${formattedHistory}

@@ -5,9 +5,11 @@ import { processTranscriptAction, generateQuestionsAction, uploadAndExtractActio
 import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, type NotebookSource } from "@/lib/firebase/db";
 import { type TranscriptChunk, type WisdomSummary } from "@/lib/rag";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
 import { Sparkles, Search, BookOpen, FileText, X, PlusCircle, LogOut, ArrowRight, Share2, Settings, MessageSquare, AudioLines, Presentation, Network, Brain, FileSpreadsheet, Loader2, RefreshCcw, Trash2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
+import { InterviewerModal } from "@/components/InterviewerModal";
 import { auth } from "@/lib/firebase/client";
 
 export default function Home() {
@@ -29,6 +31,7 @@ export default function Home() {
   const [isInterviewerThinking, setIsInterviewerThinking] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [showVault, setShowVault] = useState(false);
+  const [isInterviewerOpen, setIsInterviewerOpen] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -230,6 +233,18 @@ export default function Home() {
   return (
     <div className="h-screen flex flex-col bg-[#F3F4F6] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans overflow-hidden">
       
+      <AnimatePresence>
+        {isInterviewerOpen && (
+          <InterviewerModal 
+            onClose={() => setIsInterviewerOpen(false)} 
+            onSave={async (transcript) => {
+              const file = new File([transcript], `AI_Interview_${new Date().toISOString().split('T')[0]}.txt`, { type: "text/plain" });
+              await handleCloudUpload([file]);
+            }} 
+          />
+        )}
+      </AnimatePresence>
+
       {/* Global Header */}
       <header className="flex-shrink-0 flex items-center justify-between px-6 py-3 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
         <div className="flex items-center gap-4">
@@ -400,7 +415,22 @@ export default function Home() {
                      {chatMessages.map((msg, index) => (
                        <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                          <div className={`max-w-[85%] rounded-2xl p-4 ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-sm ml-auto' : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 rounded-tl-sm mr-auto'}`}>
-                           <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                           <div className="text-[15px] leading-relaxed break-words whitespace-pre-wrap">
+                             <ReactMarkdown 
+                               components={{
+                                 p: ({node, ...props}) => <p className="mb-3 last:mb-0" {...props} />,
+                                 strong: ({node, ...props}) => <strong className="font-bold" {...props} />,
+                                 ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-4" {...props} />,
+                                 ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-4" {...props} />,
+                                 li: ({node, ...props}) => <li className="mb-1" {...props} />,
+                                 h1: ({node, ...props}) => <h1 className="text-xl font-bold mb-3" {...props} />,
+                                 h2: ({node, ...props}) => <h2 className="text-lg font-bold mb-3" {...props} />,
+                                 h3: ({node, ...props}) => <h3 className="text-base font-bold mb-2" {...props} />
+                               }}
+                             >
+                               {msg.text}
+                             </ReactMarkdown>
+                           </div>
                          </div>
                        </div>
                      ))}
@@ -459,22 +489,38 @@ export default function Home() {
            <div className="p-4 space-y-6">
               
               {/* Studio Tool Grid */}
-              <div className="grid grid-cols-2 gap-3">
-                 <div className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900 hover:border-blue-400 transition cursor-pointer p-4 rounded-xl flex flex-col hover:shadow-md">
-                    <AudioLines className="text-blue-600 mb-2" size={20}/>
-                    <span className="text-sm font-bold text-blue-900 dark:text-blue-300">Audio Overview</span>
+              <div className="grid grid-cols-1 gap-3">
+                 <div className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900 hover:border-blue-400 transition cursor-pointer p-4 rounded-xl flex items-center gap-4 hover:shadow-md">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center flex-shrink-0">
+                       <AudioLines className="text-blue-600 dark:text-blue-400" size={20}/>
+                    </div>
+                    <div className="flex flex-col">
+                       <span className="text-sm font-bold text-blue-900 dark:text-blue-300">Audio Overview</span>
+                       <span className="text-xs text-blue-700/70 dark:text-blue-400/70">Listen to a deep dive podcast</span>
+                    </div>
                  </div>
-                 <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 transition cursor-pointer p-4 rounded-xl flex flex-col">
-                    <Presentation className="text-zinc-600 dark:text-zinc-400 mb-2" size={20}/>
-                    <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Slide Deck</span>
+
+                 <div className="bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900 hover:border-emerald-400 transition cursor-pointer p-4 rounded-xl flex items-center gap-4 hover:shadow-md">
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center flex-shrink-0">
+                       <Network className="text-emerald-600 dark:text-emerald-400" size={20}/>
+                    </div>
+                    <div className="flex flex-col">
+                       <span className="text-sm font-bold text-emerald-900 dark:text-emerald-400">Relationship Mind Map</span>
+                       <span className="text-xs text-emerald-700/70 dark:text-emerald-400/70">Visual graphic mapping relationships</span>
+                    </div>
                  </div>
-                 <div className="bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900 hover:border-emerald-400 transition cursor-pointer p-4 rounded-xl flex flex-col">
-                    <Network className="text-emerald-600 mb-2" size={20}/>
-                    <span className="text-sm font-bold text-emerald-900 dark:text-emerald-400">Mind Map</span>
-                 </div>
-                 <div className="bg-fuchsia-50/50 dark:bg-fuchsia-900/10 border border-fuchsia-100 dark:border-fuchsia-900 hover:border-fuchsia-400 transition cursor-pointer p-4 rounded-xl flex flex-col">
-                    <FileSpreadsheet className="text-fuchsia-600 mb-2" size={20}/>
-                    <span className="text-sm font-semibold text-fuchsia-900 dark:text-fuchsia-400">Flashcards</span>
+
+                 <div 
+                   onClick={() => setIsInterviewerOpen(true)}
+                   className="bg-purple-50/50 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-900 hover:border-purple-400 transition cursor-pointer p-4 rounded-xl flex items-center gap-4 hover:shadow-md"
+                 >
+                    <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center flex-shrink-0">
+                       <Brain className="text-purple-600 dark:text-purple-400" size={20}/>
+                    </div>
+                    <div className="flex flex-col">
+                       <span className="text-sm font-bold text-purple-900 dark:text-purple-400">AI Interviewer</span>
+                       <span className="text-xs text-purple-700/70 dark:text-purple-400/70">Interactive voice conversations</span>
+                    </div>
                  </div>
               </div>
 
