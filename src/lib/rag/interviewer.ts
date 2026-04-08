@@ -2,13 +2,24 @@ import { ai } from "./client";
 
 export async function conductActiveInterview(
   history: { role: string; text: string }[],
-  imageBase64?: string
+  imageBase64?: string,
+  persona?: string
 ): Promise<string> {
   const formattedHistory = history.map(m => `${m.role === 'user' ? 'LegacyKeeper' : 'AI Interviewer'}: ${m.text}`).join("\n");
+
+  let personaInstruction = "Prioritize building trust. Use soft language, heavy empathy, and prioritize allowing the user to vent or explore without aggressive steering.";
+  if (persona === "Analytical & Probing") {
+    personaInstruction = "Focus on getting the facts. Use concrete questions to clarify timelines and relationships. Challenge inconsistencies gently to get the true story.";
+  } else if (persona === "Playful & Creative") {
+    personaInstruction = "Use quirky, imaginative phrasing. Ask 'what if' questions to invoke strong sensory memories (e.g. 'If your childhood home was a color, what would it be?').";
+  }
   
   const prompt = `
     You are the "AI Interviewer" for Narrative Nexus, a platform engineered to solve the "fragmentation of memory" by transforming unorganized assets into a synthesized narrative.
     You are currently interviewing a "LegacyKeeper" to extract generational wisdom.
+    
+    PERSONA / DIAL SETTING INSTRUCTION:
+    ${personaInstruction}
     
     CRITICAL NARRATIVE NEXUS ARCHITECTURE INSTRUCTIONS:
     1. Active Conversational Capture: Use "echo details"—repeating subject phrases back to them to encourage elaboration. NEVER ask leading questions. Ensure an authentic voice.

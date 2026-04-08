@@ -1,6 +1,6 @@
 "use server";
 
-import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview } from "@/lib/rag";
+import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, updateHighFidelityStoriesIncrementally } from "@/lib/rag";
 // @ts-ignore - Bypass Turbopack static ESM export resolution
 import pdfParseModule from "pdf-parse/lib/pdf-parse.js";
 
@@ -72,11 +72,29 @@ export async function chatWithLegacyAction(context: string, question: string, hi
   }
 }
 
-export async function conductActiveInterviewAction(history: { role: string; text: string }[], imageBase64?: string): Promise<string> {
+export async function conductActiveInterviewAction(history: { role: string; text: string }[], imageBase64?: string, persona?: string): Promise<string> {
   try {
-    return await conductActiveInterview(history, imageBase64);
+    return await conductActiveInterview(history, imageBase64, persona);
   } catch (error: any) {
     console.error("Failed to conduct active interview:", error);
     return "SYSTEM ERROR: " + (error?.message || error);
+  }
+}
+
+export async function extractHighFidelityStoriesAction(context: string): Promise<HighFidelityStory[]> {
+  try {
+    return await extractHighFidelityStories(context);
+  } catch (error) {
+    console.error("Failed to extract high fidelity stories:", error);
+    return [];
+  }
+}
+
+export async function updateHighFidelityStoriesAction(cachedStories: HighFidelityStory[], newTranscript: string): Promise<HighFidelityStory[]> {
+  try {
+    return await updateHighFidelityStoriesIncrementally(cachedStories, newTranscript);
+  } catch (error) {
+    console.error("Failed to update high fidelity stories:", error);
+    return cachedStories;
   }
 }

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction } from "./actions";
-import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, type NotebookSource } from "@/lib/firebase/db";
+import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, updateHighFidelityStoriesAction } from "./actions";
+import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, type NotebookSource } from "@/lib/firebase/db";
 import { type TranscriptChunk, type WisdomSummary } from "@/lib/rag";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
-import { Sparkles, Search, BookOpen, FileText, X, PlusCircle, LogOut, ArrowRight, Share2, Settings, MessageSquare, AudioLines, Presentation, Network, Brain, FileSpreadsheet, Loader2, RefreshCcw, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Sparkles, Search, BookOpen, FileText, X, PlusCircle, LogOut, ArrowRight, Share2, Settings, MessageSquare, AudioLines, Presentation, Network, Brain, FileSpreadsheet, Loader2, RefreshCcw, Trash2, User, Activity } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { InterviewerModal } from "@/components/InterviewerModal";
@@ -108,6 +109,19 @@ export default function Home() {
     setSources(newSourceState);
     setIsUploading(false);
     
+    // --- NEW: Incremental High-Fidelity Update ---
+    if (user && uploadedSources.length > 0) {
+      try {
+        const currentStories = await fetchHighFidelityStories(user.uid);
+        const newText = uploadedSources.map(s => s.textContent).join("\n\n");
+        const updatedStories = await updateHighFidelityStoriesAction(currentStories, newText);
+        await saveHighFidelityStories(user.uid, updatedStories);
+      } catch (err) {
+        console.error("Incremental compilation failed:", err);
+      }
+    }
+    // ---------------------------------------------
+    
     await handleAutoProcess(newSourceState);
   };
 
@@ -173,6 +187,22 @@ export default function Home() {
     const newSources = sources.filter((_, idx) => idx !== indexToRemove);
     setSources(newSources);
     handleAutoProcess(newSources); // dynamically re-evaluate the overview!
+
+    // --- NEW: Reconciliation Recompile ---
+    if (user) {
+      try {
+        if (newSources.length > 0) {
+          const vaultContext = newSources.map(s => `[Source: ${s.fileName}]\n${s.textContent}`).join("\n\n");
+          const recompiled = await extractHighFidelityStoriesAction(vaultContext);
+          await saveHighFidelityStories(user.uid, recompiled);
+        } else {
+          await saveHighFidelityStories(user.uid, []);
+        }
+      } catch (err) {
+        console.error("Reconciliation compilation failed:", err);
+      }
+    }
+    // -------------------------------------
   };
 
   const viewHistoricalSession = (session: any) => {
@@ -257,9 +287,17 @@ export default function Home() {
           <button className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition"><Settings size={16}/> Settings</button>
           <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold cursor-pointer relative group">
             {user.email?.[0].toUpperCase()}
-            <div className="absolute top-10 right-0 w-48 bg-white shadow-lg border border-slate-200 rounded-xl hidden group-hover:block z-50 p-2">
-               <div className="px-3 py-2 text-xs text-slate-500 truncate">{user.email}</div>
-               <button onClick={() => auth.signOut()} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-2"><LogOut size={16}/> Sign Out</button>
+            <div className="absolute top-full right-0 pt-2 w-48 hidden group-hover:block z-50">
+               <div className="bg-white shadow-lg border border-slate-200 rounded-xl p-2 flex flex-col gap-1">
+                 <div className="px-3 py-2 text-xs text-slate-500 truncate">{user.email}</div>
+                 <Link href="/profile" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2">
+                   <User size={16}/> Profile
+                 </Link>
+                 <Link href="/progress" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2">
+                   <Activity size={16}/> Legacy Progress
+                 </Link>
+                 <button onClick={() => auth.signOut()} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-2 mt-1 border-t border-zinc-100 dark:border-zinc-800 pt-3"><LogOut size={16}/> Sign Out</button>
+               </div>
             </div>
           </div>
         </div>

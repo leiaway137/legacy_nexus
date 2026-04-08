@@ -18,6 +18,7 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+  const [selectedPersona, setSelectedPersona] = useState<string>("Warm & Reflective");
 
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
 
@@ -59,7 +60,22 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
       };
 
       recognitionRef.current.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
+        if (event.error !== 'no-speech') {
+          console.error("Speech recognition error", event.error);
+        }
+      };
+
+      // Robustly handle abrupt stops (like 'no-speech' timeouts from the browser)
+      recognitionRef.current.onend = () => {
+        // If we still think we are recording, and we are not currently processing the AI's turn,
+        // it means the browser killed the speech recognition prematurely. Restart it.
+        if (isRecording && !isProcessingTurnRef.current) {
+          try {
+            recognitionRef.current.start();
+          } catch (e) {
+            // Context already started, ignore gracefully
+          }
+        }
       };
     }
     
@@ -168,7 +184,7 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
 
   const triggerAiTurn = async (currentHistory: { role: string; text: string }[]) => {
     setIsAiThinking(true);
-    const aiResponseText = await conductActiveInterviewAction(currentHistory, currentHistory.length === 0 ? imageBase64 : undefined);
+    const aiResponseText = await conductActiveInterviewAction(currentHistory, currentHistory.length === 0 ? imageBase64 : undefined, selectedPersona);
     setIsAiThinking(false);
     
     // Add to history
@@ -276,6 +292,19 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
                     </>
                   )}
                 </div>
+              </div>
+
+              <div className="w-full max-w-sm mt-4">
+                <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-2">Interviewer Style</label>
+                <select
+                  value={selectedPersona}
+                  onChange={(e) => setSelectedPersona(e.target.value)}
+                  className="w-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-purple-500 transition-colors cursor-pointer text-zinc-900 dark:text-zinc-100"
+                >
+                  <option value="Warm & Reflective">Warm & Reflective (Default)</option>
+                  <option value="Analytical & Probing">Analytical & Probing</option>
+                  <option value="Playful & Creative">Playful & Creative</option>
+                </select>
               </div>
               
               {micError && (

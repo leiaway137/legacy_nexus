@@ -203,3 +203,182 @@ export async function chatWithLegacy(transcriptContext: string, question: string
     return "I encountered an error trying to process your request.";
   }
 }
+
+export interface HighFidelityStory {
+  id: string;
+  era: string;
+  title: string;
+  synopsis: string;
+  psychometrics: { label: string; val: number }[];
+  rubric: {
+    context: boolean;
+    conflict: boolean;
+    resolution: boolean;
+    extraction: boolean;
+  };
+  gapPrompt: string | null;
+}
+
+export async function extractHighFidelityStories(transcriptContext: string): Promise<HighFidelityStory[]> {
+  if (!transcriptContext.trim()) return [];
+  
+  const prompt = `
+    You are an elite archivist and biographer for Legacy Nexus.
+    Your task is to analyze the provided raw transcripts and extract distinct, high-fidelity narrative stories.
+    For each extracted story, output the following structured data:
+    1. A short, compelling 'title'.
+    2. The chronological 'era'. You MUST map the era strictly to one of the following exact strings: "Childhood", "Teens", "Twenties", "Thirties", "Forties", or "Fifties+".
+    3. A concise 'synopsis' detailing the specific memory.
+    4. Exactly 6 'psychometrics'. You MUST output an array containing exactly these 6 labels representing the RIASEC model: "Realistic", "Investigative", "Artistic", "Social", "Enterprising", and "Conventional". Evaluate each between 0 and 100 based on how intensely the theme applies to the story (0 if not applicable).
+    5. A completeness 'rubric' containing 4 booleans tracking if the story explicitly contains:
+       - 'context': Does it establish the setting and background?
+       - 'conflict': Is there a clear challenge, pivot, or escalation?
+       - 'resolution': Is the outcome explained?
+       - 'extraction': Did the narrator explicitly state the moral, life lesson, or specific takeaway?
+    6. If the story has high conflict but 'extraction' is false, generate a 'gapPrompt' (a string prompting the user empathically to explain the moral of the story). Otherwise, provide null.
+    
+    If the context is short, return at least 1-2 distinct moments. If it's a long life history, return up to 5-10 major moments chronologically.
+
+    Raw Context:
+    "${transcriptContext}"
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              era: { type: Type.STRING },
+              title: { type: Type.STRING },
+              synopsis: { type: Type.STRING },
+              psychometrics: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    label: { type: Type.STRING },
+                    val: { type: Type.INTEGER }
+                  },
+                  required: ["label", "val"]
+                }
+              },
+              rubric: {
+                type: Type.OBJECT,
+                properties: {
+                  context: { type: Type.BOOLEAN },
+                  conflict: { type: Type.BOOLEAN },
+                  resolution: { type: Type.BOOLEAN },
+                  extraction: { type: Type.BOOLEAN }
+                },
+                required: ["context", "conflict", "resolution", "extraction"]
+              },
+              gapPrompt: { type: Type.STRING, nullable: true }
+            },
+            required: ["id", "era", "title", "synopsis", "psychometrics", "rubric"]
+          }
+        }
+      }
+    });
+
+    if (response.text) {
+      let raw = response.text;
+      if (typeof raw === "function") raw = (raw as any)();
+      raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
+      return JSON.parse(raw) as HighFidelityStory[];
+    }
+  } catch (error) {
+    console.error("Failed to extract stories:", error);
+  }
+  return [];
+}
+
+export async function updateHighFidelityStoriesIncrementally(cachedStories: HighFidelityStory[], newTranscript: string): Promise<HighFidelityStory[]> {
+  if (!newTranscript.trim() || cachedStories.length === 0) {
+    return extractHighFidelityStories(newTranscript);
+  }
+
+  const prompt = `
+    You are an elite archivist and biographer for Legacy Nexus.
+    
+    You are given an EXISTING JSON array of HighFidelityStory objects representing a user's known timeline.
+    You are also given a NEW TRANSCRIPT containing added memories.
+    
+    Your task:
+    1. Read the new transcript.
+    2. Determine if the events described in the new transcript fall into the context of any EXISTING stories.
+       - If YES: UPDATE the existing story. You can rewrite the 'synopsis' to include the new details, drastically update the 'psychometrics' (score 0 to 100 on Realistic, Investigative, Artistic, Social, Enterprising, Conventional) based on the new context, and update the 'rubric' booleans (e.g., if the new text provides the Conflict or Extraction that was missing). Remove the 'gapPrompt' if 'extraction' becomes true.
+       - If NO: CREATE entirely new story objects and APPEND them to the array.
+    3. Ensure ALL stories (existing and new) strictly adhere to the previously defined format. 
+       - 'era' MUST strictly be "Childhood", "Teens", "Twenties", "Thirties", "Forties", or "Fifties+".
+    
+    Return the FULL, ENTIRE aggregated JSON array of all stories (updated existing ones + unmodified existing ones + newly appended ones).
+
+    --- EXISTING JSON ARRAY ---
+    ${JSON.stringify(cachedStories)}
+
+    --- NEW TRANSCRIPT MATERIAL ---
+    "${newTranscript}"
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              era: { type: Type.STRING },
+              title: { type: Type.STRING },
+              synopsis: { type: Type.STRING },
+              psychometrics: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    label: { type: Type.STRING },
+                    val: { type: Type.INTEGER }
+                  },
+                  required: ["label", "val"]
+                }
+              },
+              rubric: {
+                type: Type.OBJECT,
+                properties: {
+                  context: { type: Type.BOOLEAN },
+                  conflict: { type: Type.BOOLEAN },
+                  resolution: { type: Type.BOOLEAN },
+                  extraction: { type: Type.BOOLEAN }
+                },
+                required: ["context", "conflict", "resolution", "extraction"]
+              },
+              gapPrompt: { type: Type.STRING, nullable: true }
+            },
+            required: ["id", "era", "title", "synopsis", "psychometrics", "rubric"]
+          }
+        }
+      }
+    });
+
+    if (response.text) {
+      let raw = response.text;
+      if (typeof raw === "function") raw = (raw as any)();
+      raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
+      return JSON.parse(raw) as HighFidelityStory[];
+    }
+  } catch (error) {
+    console.error("Failed to update incrementally:", error);
+  }
+  return cachedStories;
+}

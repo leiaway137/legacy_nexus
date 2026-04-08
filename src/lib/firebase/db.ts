@@ -1,6 +1,6 @@
-import { getFirestore, collection, addDoc, serverTimestamp, query, where, getDocs, doc, deleteDoc, orderBy } from "firebase/firestore";
+import { getFirestore, collection, addDoc, serverTimestamp, query, where, getDocs, doc, deleteDoc, orderBy, getDoc, setDoc } from "firebase/firestore";
 import { app } from "./client";
-import { type TranscriptChunk, type WisdomSummary } from "@/lib/rag";
+import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory } from "@/lib/rag";
 
 export const db = getFirestore(app);
 
@@ -24,6 +24,37 @@ export async function saveCompiledSession(userId: string, chunks: TranscriptChun
     return null;
   }
 }
+
+// ---- HIGH FIDELITY STORY SYSTEM (RIASEC & ANALYTICS PERSISTENCE) ----
+
+export async function saveHighFidelityStories(userId: string, stories: HighFidelityStory[]): Promise<boolean> {
+  try {
+    const docRef = doc(db, "legacy_stories", userId);
+    await setDoc(docRef, {
+      userId,
+      stories,
+      lastUpdated: serverTimestamp()
+    }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error("Failed to save high fidelity stories:", error);
+    return false;
+  }
+}
+
+export async function fetchHighFidelityStories(userId: string): Promise<HighFidelityStory[]> {
+  try {
+    const docRef = doc(db, "legacy_stories", userId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists() && docSnap.data().stories) {
+      return docSnap.data().stories as HighFidelityStory[];
+    }
+  } catch (error) {
+    console.error("Failed to fetch high fidelity stories:", error);
+  }
+  return [];
+}
+
 
 export async function fetchUserSessions(userId: string) {
   try {
@@ -97,5 +128,45 @@ export async function deleteNotebookSource(documentId: string) {
     await deleteDoc(doc(db, "user_sources", documentId));
   } catch (error) {
     console.error("Failed to remove source document:", error);
+  }
+}
+
+// ---- USER PROFILES SYSTEM ----
+
+export interface UserProfile {
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  formerName?: string;
+  pronouns?: string;
+  genderIdentity?: string;
+  dateOfBirth?: string;
+  placeOfBirth?: string;
+  residence?: string;
+  culturalHeritage?: string;
+  updatedAt?: any;
+}
+
+export async function fetchUserProfile(userId: string): Promise<UserProfile | null> {
+  try {
+    const docRef = doc(db, "user_profiles", userId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data() as UserProfile;
+    }
+  } catch (error) {
+    console.error("Failed to fetch user profile:", error);
+  }
+  return null;
+}
+
+export async function updateUserProfile(userId: string, data: Partial<UserProfile>): Promise<boolean> {
+  try {
+    const docRef = doc(db, "user_profiles", userId);
+    await setDoc(docRef, { ...data, updatedAt: serverTimestamp() }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error("Failed to update user profile:", error);
+    return false;
   }
 }
