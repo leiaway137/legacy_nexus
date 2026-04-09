@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, User, Mail, Shield, Sparkles, Save, Loader2, MapPin, Calendar, Users, Globe2 } from "lucide-react";
+import { ArrowLeft, User, Mail, Shield, Sparkles, Save, Loader2, MapPin, Calendar, Users, Globe2, MessageSquare } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { fetchUserProfile, updateUserProfile, type UserProfile } from "@/lib/firebase/db";
@@ -197,6 +197,23 @@ export default function ProfilePage() {
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-1"><Users size={14}/> Cultural or Ethnic Heritage</label>
                     <input type="text" name="culturalHeritage" value={profile.culturalHeritage || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Irish-American, Han Chinese" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Linguistic Profile */}
+              <div className="border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-4">
+                  <MessageSquare size={16}/> Linguistic Profile <span className="text-xs font-normal text-zinc-400 ml-2">(Optional)</span>
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="md:col-span-1">
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Primary Language</label>
+                    <input type="text" name="primaryLanguage" value={profile.primaryLanguage || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. English" />
+                  </div>
+                  <div className="md:col-span-1">
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Secondary Spoken Languages</label>
+                    <input type="text" name="secondaryLanguages" value={profile.secondaryLanguages || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Cantonese, Mandarin" />
                   </div>
                 </div>
               </div>

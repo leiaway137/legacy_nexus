@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, updateHighFidelityStoriesAction } from "./actions";
-import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, type NotebookSource } from "@/lib/firebase/db";
+import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, type NotebookSource } from "@/lib/firebase/db";
 import { type TranscriptChunk, type WisdomSummary } from "@/lib/rag";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -237,10 +237,77 @@ export default function Home() {
        combinedTranscript += `\n\n--- SOURCE: ${src.fileName} ---\n${src.textContent}`;
     }
 
-    const aiResponseText = await chatWithLegacyAction(combinedTranscript, msg, chatMessages);
+    let linguisticContext = "";
+    if (user) {
+      const profile = await fetchUserProfile(user.uid);
+      linguisticContext = [profile?.culturalHeritage, profile?.primaryLanguage, profile?.secondaryLanguages].filter(Boolean).join(" | ");
+    }
+
+    // Create assistant message placeholder immediately
+    setChatMessages([...newHistory, { role: "assistant", text: "" }]);
     
-    setChatMessages([...newHistory, { role: "assistant", text: aiResponseText }]);
-    setIsChatting(false);
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          context: combinedTranscript,
+          question: msg,
+          history: chatMessages, // omit the current user prompt since it's sent as 'question'
+          linguisticContext,
+        }),
+      });
+
+      if (!response.body) throw new Error("No response body.");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let rawStreamText = "";
+      let displayedText = "";
+      let isNetworkDone = false;
+
+      // Software Typewriter: Decouple network chunks from UI rendering for smooth 60fps output
+      const pumpTypewriter = () => {
+        if (displayedText.length < rawStreamText.length) {
+          const distance = rawStreamText.length - displayedText.length;
+          // Type faster if the network buffer gets far ahead of the UI
+          const charsToAdd = Math.max(1, Math.min(distance, Math.ceil(distance / 5)));
+          
+          displayedText += rawStreamText.substring(displayedText.length, displayedText.length + charsToAdd);
+          
+          setChatMessages(prev => {
+             const nextState = [...prev];
+             nextState[nextState.length - 1] = { role: "assistant", text: displayedText };
+             return nextState;
+          });
+          
+          setTimeout(pumpTypewriter, 15);
+        } else if (isNetworkDone) {
+          setIsChatting(false);
+        } else {
+          setTimeout(pumpTypewriter, 15);
+        }
+      };
+      
+      pumpTypewriter();
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          isNetworkDone = true;
+          break;
+        }
+        rawStreamText += decoder.decode(value, { stream: true });
+      }
+    } catch (e: any) {
+      console.error("Chat Stream err:", e);
+      setChatMessages(prev => {
+           const nextState = [...prev];
+           nextState[nextState.length - 1] = { role: "assistant", text: "SYSTEM ERROR: Stream failed." };
+           return nextState;
+      });
+      setIsChatting(false);
+    }
   };
 
   const handleTagClick = (wisdom: WisdomSummary) => {

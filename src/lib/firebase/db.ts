@@ -144,6 +144,8 @@ export interface UserProfile {
   placeOfBirth?: string;
   residence?: string;
   culturalHeritage?: string;
+  primaryLanguage?: string;
+  secondaryLanguages?: string;
   updatedAt?: any;
 }
 

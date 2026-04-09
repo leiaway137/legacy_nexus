@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ArrowLeft, BookOpen, Clock, Target, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, Sparkles, Crosshair, Loader2, Library } from "lucide-react";
+import { ArrowLeft, BookOpen, Clock, Target, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, Sparkles, Crosshair, Loader2, Library, Globe } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { HighFidelityStory } from "@/lib/rag";
-import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/firebase/db";
+import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile } from "@/lib/firebase/db";
 import { extractHighFidelityStoriesAction } from "@/app/actions";
 
 const MOCK_STORIES: HighFidelityStory[] = [
@@ -52,6 +52,31 @@ const MOCK_STORIES: HighFidelityStory[] = [
       extraction: false,
     },
     gapPrompt: "Albert, that story about the printing press failure is intense. But you haven't told me: what did that teach you about choosing business partners?"
+  },
+  {
+    id: "3",
+    era: "Timeless",
+    title: "Steamed Pork with Salted Fish",
+    synopsis: "A classic, savory family recipe. The narrator distinctly recalls their father teaching them to mix ground pork with soy sauce and a specific fermented fish paste to create a deeply aromatic, simple dish.",
+    psychometrics: [
+      { label: "Realistic", val: 80 },
+      { label: "Investigative", val: 10 },
+      { label: "Artistic", val: 60 },
+      { label: "Social", val: 50 },
+      { label: "Enterprising", val: 20 },
+      { label: "Conventional", val: 90 }
+    ],
+    rubric: {
+      context: true,
+      conflict: false,
+      resolution: true,
+      extraction: true,
+    },
+    gapPrompt: null,
+    linguisticCorrections: [
+      { original: "haam yuh", guess: "Haam Yu", meaning: "Salted Fish" },
+      { original: "seen yuk", guess: "Siu Juk", meaning: "Roast Pork / Meat" }
+    ]
   }
 ];
 
@@ -100,8 +125,12 @@ export default function StoriesPage() {
       // Combine text context
       const vaultContext = sources.map(s => `[Source: ${s.fileName}]\n${s.textContent}`).join("\n\n");
 
-      // 2. Transmit to Gemini Pipeline
-      const newStories = await extractHighFidelityStoriesAction(vaultContext);
+      // 2. Fetch profile for linguistic/cultural background
+      const profile = await fetchUserProfile(user.uid);
+
+      // 3. Transmit to Gemini Pipeline
+      const linguisticContext = [profile?.culturalHeritage, profile?.primaryLanguage, profile?.secondaryLanguages].filter(Boolean).join(" | ");
+      const newStories = await extractHighFidelityStoriesAction(vaultContext, linguisticContext);
       
       if (newStories && newStories.length > 0) {
         // 3. CACHE the results to Firebase immediately!
@@ -121,7 +150,7 @@ export default function StoriesPage() {
 
   return (
     <div className="min-h-screen bg-[#F3F4F6] dark:bg-[#0a0a0a] text-zinc-900 dark:text-zinc-100 font-sans p-6 md:p-12">
-      <div className="max-w-4xl mx-auto space-y-8">
+      <div className="max-w-7xl mx-auto space-y-8">
         
         {/* Navigation */}
         <Link 
@@ -180,22 +209,26 @@ export default function StoriesPage() {
             </div>
           )}
 
-          {/* Vertical Track Line */}
-          {!isAnalyzing && (stories.length > 0 || !hasScanned) && (
-            <div className="absolute left-8 md:left-24 top-0 bottom-0 w-1 bg-zinc-200 dark:bg-zinc-800 rounded-full" />
-          )}
-
-          <div className="space-y-16">
-            {!isAnalyzing && (stories.length > 0 ? stories : (hasScanned ? [] : MOCK_STORIES)).map((story, i) => (
-              <div key={story.id || i} className="relative pl-20 md:pl-36">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-12 xl:gap-8">
+            
+            {/* Left Column: Timeline */}
+            <div className="relative">
+              {/* Vertical Track Line */}
+              {!isAnalyzing && (stories.length > 0 || !hasScanned) && (
+                <div className="absolute left-8 md:left-36 top-0 bottom-0 w-1 bg-zinc-200 dark:bg-zinc-800 rounded-full" />
+              )}
+              
+              <div className="space-y-16">
+                {!isAnalyzing && (stories.length > 0 ? stories : (hasScanned ? [] : MOCK_STORIES)).filter(s => s.era !== "Timeless").map((story, i) => (
+              <div key={story.id || i} className="relative pl-20 md:pl-[210px]">
                 
                 {/* Timeline Dot */}
-                <div className="absolute left-[26px] md:left-[84px] top-6 w-5 h-5 bg-indigo-600 text-white rounded-full border-4 border-[#F3F4F6] dark:border-[#0a0a0a] shadow flex items-center justify-center">
+                <div className="absolute left-[26px] md:left-[134px] top-6 w-5 h-5 bg-indigo-600 text-white rounded-full border-4 border-[#F3F4F6] dark:border-[#0f0f0f] shadow flex items-center justify-center">
                    <div className="w-1.5 h-1.5 bg-white rounded-full" />
                 </div>
                 
                 {/* Era Tag */}
-                <div className="absolute left-0 w-20 md:w-32 top-5 text-right pr-6 hidden md:block">
+                <div className="absolute left-0 w-24 md:w-[124px] top-5 text-right pr-4 hidden md:block">
                   <span className="text-sm font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">{story.era || "Undefined"}</span>
                 </div>
 
@@ -212,6 +245,23 @@ export default function StoriesPage() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     
+                    {/* Linguistic Corrections (If Any) */}
+                    {story.linguisticCorrections && story.linguisticCorrections.length > 0 && (
+                      <div className="col-span-1 md:col-span-2 mb-2 p-4 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
+                        <h4 className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest flex items-center gap-1.5 mb-3"><Globe size={12} /> AI Phonetic Correction</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {story.linguisticCorrections.map((correction, idx) => (
+                            <div key={idx} className="bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-indigo-800 text-xs px-3 py-1.5 rounded-md flex items-center gap-2">
+                               <span className="text-zinc-400 dark:text-zinc-600 line-through decoration-red-400/50">{correction.original}</span>
+                               <ArrowLeft size={10} className="text-zinc-300" />
+                               <span className="font-bold text-indigo-700 dark:text-indigo-400">{correction.guess}</span>
+                               {correction.meaning && <span className="opacity-70 text-indigo-600 dark:text-indigo-500 ml-1">({correction.meaning})</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Psychometric Scorecard */}
                     <div>
                       <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-4">
@@ -300,6 +350,86 @@ export default function StoriesPage() {
                 </motion.div>
               </div>
             ))}
+              </div>
+            </div>
+
+            {/* Right Column: Timeless & Generic Philosophies */}
+            <div className="space-y-8 xl:pt-0 pt-16">
+              <div className="flex items-center gap-2 mb-6 border-b border-zinc-200 dark:border-zinc-800 pb-4">
+                <Sparkles size={18} className="text-amber-500" />
+                <h3 className="text-xl font-bold text-zinc-800 dark:text-zinc-200">Philosophies & Skills</h3>
+              </div>
+              
+              <div className="space-y-8">
+                {(() => {
+                  const timeless = !isAnalyzing ? (stories.length > 0 ? stories : (hasScanned ? [] : MOCK_STORIES)).filter(s => s.era === "Timeless") : [];
+                  
+                  if (!isAnalyzing && timeless.length === 0 && hasScanned) {
+                    return (
+                      <div className="bg-amber-50/50 dark:bg-amber-950/10 rounded-3xl p-8 border border-dashed border-amber-200 dark:border-amber-900 flex flex-col items-center justify-center text-center">
+                        <Sparkles className="text-amber-300 dark:text-amber-700/50 w-10 h-10 mb-3" />
+                        <h4 className="font-bold text-amber-900 dark:text-amber-500 mb-2">No Generic Themes Yet</h4>
+                        <p className="text-sm text-amber-700 dark:text-amber-600/80">When the AI identifies timeless life advice, philosophies, or recipes that do not fit a specific era, they will appear here as standalone cards.</p>
+                      </div>
+                    );
+                  }
+
+                  return timeless.map((story, i) => (
+                  <motion.div 
+                    key={story.id || i}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-zinc-50 dark:bg-[#1a1a1a] rounded-3xl p-6 border border-zinc-200 dark:border-zinc-800 shadow-sm relative overflow-hidden group hover:border-amber-500/30 transition-colors"
+                  >
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 blur-3xl rounded-full" />
+                    
+                    <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">{story.title}</h2>
+                    <p className="text-zinc-600 dark:text-zinc-400 mb-6 leading-relaxed">
+                      "{story.synopsis}"
+                    </p>
+
+                    {story.linguisticCorrections && story.linguisticCorrections.length > 0 && (
+                      <div className="mb-6 p-4 bg-amber-50/50 dark:bg-amber-950/20 rounded-xl border border-amber-100 dark:border-amber-900/30">
+                        <h4 className="text-[10px] font-bold text-amber-600 dark:text-amber-500 uppercase tracking-widest flex items-center gap-1.5 mb-3"><Globe size={12} /> Secondary Language Guestimation</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {story.linguisticCorrections.map((correction, idx) => (
+                            <div key={idx} className="bg-white dark:bg-[#1a1a1a] shadow-sm text-xs px-3 py-2 rounded-md border border-amber-200/50 dark:border-amber-800/50 flex items-center gap-2">
+                               <span className="text-zinc-400 dark:text-zinc-600 line-through decoration-red-400/50">{correction.original}</span>
+                               <ArrowLeft size={10} className="text-zinc-300 transform rotate-180" />
+                               <span className="font-bold text-amber-700 dark:text-amber-400">{correction.guess}</span>
+                               {correction.meaning && <span className="text-amber-600/80 dark:text-amber-500/80 ml-1 italic">({correction.meaning})</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 gap-6">
+                      {/* Psychometric Scorecard */}
+                      <div>
+                        <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+                          <Target size={14} /> Thematic Profile
+                        </h3>
+                        <div className="space-y-3">
+                          {story.psychometrics?.filter(m => m.val > 0).map(metric => (
+                            <div key={metric.label}>
+                              <div className="flex justify-between items-end mb-1">
+                                <span className="text-[10px] font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">{metric.label}</span>
+                              </div>
+                              <div className="w-full h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-amber-500 rounded-full" style={{ width: `${metric.val}%` }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                  ));
+                })()}
+              </div>
+            </div>
+
           </div>
 
         </div>

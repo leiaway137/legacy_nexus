@@ -63,9 +63,9 @@ export async function generateWisdomSummariesAction(context: string): Promise<Wi
   }
 }
 
-export async function chatWithLegacyAction(context: string, question: string, history: {role: string, text: string}[]): Promise<string> {
+export async function chatWithLegacyAction(context: string, question: string, history: {role: string, text: string}[], linguisticContext?: string): Promise<string> {
   try {
-    return await chatWithLegacy(context, question, history);
+    return await chatWithLegacy(context, question, history, linguisticContext);
   } catch (error: any) {
     console.error("Failed to chat with legacy:", error);
     return "SYSTEM ERROR: " + (error?.message || error);
@@ -81,18 +81,18 @@ export async function conductActiveInterviewAction(history: { role: string; text
   }
 }
 
-export async function extractHighFidelityStoriesAction(context: string): Promise<HighFidelityStory[]> {
+export async function extractHighFidelityStoriesAction(context: string, culturalContext?: string): Promise<HighFidelityStory[]> {
   try {
-    return await extractHighFidelityStories(context);
+    return await extractHighFidelityStories(context, culturalContext);
   } catch (error) {
     console.error("Failed to extract high fidelity stories:", error);
     return [];
   }
 }
 
-export async function updateHighFidelityStoriesAction(cachedStories: HighFidelityStory[], newTranscript: string): Promise<HighFidelityStory[]> {
+export async function updateHighFidelityStoriesAction(cachedStories: HighFidelityStory[], newTranscript: string, culturalContext?: string): Promise<HighFidelityStory[]> {
   try {
-    return await updateHighFidelityStoriesIncrementally(cachedStories, newTranscript);
+    return await updateHighFidelityStoriesIncrementally(cachedStories, newTranscript, culturalContext);
   } catch (error) {
     console.error("Failed to update high fidelity stories:", error);
     return cachedStories;

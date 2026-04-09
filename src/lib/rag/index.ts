@@ -61,6 +61,9 @@ export async function generateSynopsis(transcriptContext: string): Promise<strin
       Based strictly on the following source materials, output a highly engaging, cohesive, 1-paragraph synopsis (around 150-200 words) summarizing the life, career, and core themes of the individual discussed in the texts.
       The synopsis should sound like a premium history book introduction or a NotebookLM Overview. Write cleanly without Markdown bolding everywhere.
       Combine findings elegantly if multiple sources are present.
+      
+      LOGICAL CONSISTENCY & MEMORY CORRECTION: 
+      The narrator is elderly and may naturally muddle names, roles, or timelines (e.g., confusing which child achieved what). You MUST cross-reference claims across the entire transcript. If there is a logical inconsistency (e.g., Daughter A is established as the chiropractor, but a later sentence claims Daughter B graduated from chiropractic school), deduce the highly probable truth and silently correct the muddled statement, assigning the achievement to the logically correct individual. Do not repeat the speaker's memory mistakes.
 
       Sources context:
       ${transcriptContext} // Provide full context for highest fidelity questions
@@ -123,6 +126,9 @@ export async function generateWisdomSummaries(transcriptContext: string): Promis
     The number of tags should elegantly scale with the length and breadth of the transcript context (typically 10-30 tags depending on volume). Please do not artificially limit the tags; be specific, exhaustive, and avoid clumping details into a few broad corporate categories.
     For each theme, write a compelling, comprehensive summary of the individual's view or experience regarding that theme, based on all the provided text.
     The summary should not just be a snippet, but a thought-out synthesis of their perspective.
+    
+    LOGICAL CONSISTENCY & MEMORY CORRECTION: 
+    The narrator is elderly and may naturally muddle names, roles, or timelines (e.g., confusing which child achieved what). You MUST cross-reference claims across the entire transcript. If there is a logical inconsistency (e.g., Daughter A is established as the chiropractor, but a later sentence claims Daughter B graduated from chiropractic school), deduce the highly probable truth and silently correct the muddled statement, assigning the achievement to the logically correct individual. Do not repeat the speaker's memory mistakes.
 
     Raw Transcript Context:
     "${transcriptContext}" // Using full context
@@ -167,7 +173,7 @@ export async function generateWisdomSummaries(transcriptContext: string): Promis
   return [];
 }
 
-export async function chatWithLegacy(transcriptContext: string, question: string, history: {role: string, text: string}[] = []): Promise<string> {
+export async function chatWithLegacy(transcriptContext: string, question: string, history: {role: string, text: string}[] = [], linguisticContext?: string): Promise<string> {
   if (!transcriptContext.trim()) return "No context provided. Please try again.";
   let formattedHistory = history.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`).join("\\n");
   
@@ -182,6 +188,8 @@ export async function chatWithLegacy(transcriptContext: string, question: string
     - Connect the themes to their broader life narrative, such as family, immigration, or personal philosophy.
     - Use Markdown gracefully.
     - If the answer is truly not in the context, say that you don't have enough information, but always try to synthesize related themes if possible.
+    - LOGICAL CONSISTENCY & MEMORY CORRECTION: The narrator is elderly and may naturally muddle names, roles, or timelines. You MUST cross-reference claims across the entire transcript. If there is a logical inconsistency (e.g., Daughter A is established as the chiropractor, but a later sentence claims Daughter B graduated from chiropractic school), deduce the highly probable truth and silently correct the muddled statement, assigning the achievement to the logically correct individual. Do not repeat the speaker's memory mistakes.
+    ${linguisticContext ? `- LINGUISTIC CORRECTIONS: The speaker's cultural background/languages are: ${linguisticContext}. If you output any foreign words, recipes, or phrases that were translated phonetically in the transcript, elegantly guestimate their correct native romanization (e.g., Pinyin/Characters) and provide an English translation in brackets. NEVER output poor phonetic gibberish (e.g., instead of "Upcount E", use "Pipa Duck / 琵琶鴨").` : ''}
     
     Context:
     "${transcriptContext}"
@@ -204,6 +212,55 @@ export async function chatWithLegacy(transcriptContext: string, question: string
   }
 }
 
+export async function chatWithLegacyStream(transcriptContext: string, question: string, history: {role: string, text: string}[] = [], linguisticContext?: string): Promise<ReadableStream> {
+  if (!transcriptContext.trim()) throw new Error("No context provided.");
+  let formattedHistory = history.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`).join("\\n");
+  
+  const prompt = `
+    You are the "Legacy Nexus AI", a deeply analytical and narrative biographer akin to a premium research assistant (like NotebookLM).
+    Your goal is to answer the user's question with extensive depth, empathy, and rich storytelling using ONLY the provided context.
+    
+    CRITICAL INSTRUCTIONS FOR YOUR RESPONSE:
+    - Structure your response using well-defined, bolded thematic section headers (e.g., **A Tool for Integration and Social Status**).
+    - Do not just output a brief bulleted list. Instead, write engaging, cohesive, multi-sentence paragraphs under each header.
+    - Extract highly specific details, quotes, and anecdotes from the source context to support your points.
+    - Connect the themes to their broader life narrative, such as family, immigration, or personal philosophy.
+    - Use Markdown gracefully.
+    - If the answer is truly not in the context, say that you don't have enough information, but always try to synthesize related themes if possible.
+    - LOGICAL CONSISTENCY & MEMORY CORRECTION: The narrator is elderly and may naturally muddle names, roles, or timelines. You MUST cross-reference claims across the entire transcript. If there is a logical inconsistency (e.g., Daughter A is established as the chiropractor, but a later sentence claims Daughter B graduated from chiropractic school), deduce the highly probable truth and silently correct the muddled statement, assigning the achievement to the logically correct individual. Do not repeat the speaker's memory mistakes.
+    ${linguisticContext ? `- LINGUISTIC CORRECTIONS: The speaker's cultural background/languages are: ${linguisticContext}. If you output any foreign words, recipes, or phrases that were translated phonetically in the transcript, elegantly guestimate their correct native romanization (e.g., Pinyin/Characters) and provide an English translation in brackets. NEVER output poor phonetic gibberish (e.g., instead of "Upcount E", use "Pipa Duck / 琵琶鴨").` : ''}
+    
+    Context:
+    "${transcriptContext}"
+    
+    Chat History:
+    ${formattedHistory}
+    
+    User Question: ${question}
+  `;
+
+  const aiStream = await ai.models.generateContentStream({
+    model: "gemini-2.5-flash",
+    contents: prompt,
+  });
+
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const chunk of aiStream) {
+          if (chunk.text) {
+            controller.enqueue(encoder.encode(chunk.text));
+          }
+        }
+        controller.close();
+      } catch (e) {
+        controller.error(e);
+      }
+    }
+  });
+}
+
 export interface HighFidelityStory {
   id: string;
   era: string;
@@ -217,9 +274,10 @@ export interface HighFidelityStory {
     extraction: boolean;
   };
   gapPrompt: string | null;
+  linguisticCorrections?: { original: string; guess: string; meaning: string }[];
 }
 
-export async function extractHighFidelityStories(transcriptContext: string): Promise<HighFidelityStory[]> {
+export async function extractHighFidelityStories(transcriptContext: string, culturalContext?: string): Promise<HighFidelityStory[]> {
   if (!transcriptContext.trim()) return [];
   
   const prompt = `
@@ -227,7 +285,7 @@ export async function extractHighFidelityStories(transcriptContext: string): Pro
     Your task is to analyze the provided raw transcripts and extract distinct, high-fidelity narrative stories.
     For each extracted story, output the following structured data:
     1. A short, compelling 'title'.
-    2. The chronological 'era'. You MUST map the era strictly to one of the following exact strings: "Childhood", "Teens", "Twenties", "Thirties", "Forties", or "Fifties+".
+    2. The chronological 'era'. You MUST map the era strictly to one of the following exact strings: "Childhood", "Teens", "Twenties", "Thirties", "Forties", "Fifties+", or "Timeless" (Use "Timeless" for generic life advice, recipes, philosophical beliefs, or non-chronological skills).
     3. A concise 'synopsis' detailing the specific memory.
     4. Exactly 6 'psychometrics'. You MUST output an array containing exactly these 6 labels representing the RIASEC model: "Realistic", "Investigative", "Artistic", "Social", "Enterprising", and "Conventional". Evaluate each between 0 and 100 based on how intensely the theme applies to the story (0 if not applicable).
     5. A completeness 'rubric' containing 4 booleans tracking if the story explicitly contains:
@@ -236,7 +294,8 @@ export async function extractHighFidelityStories(transcriptContext: string): Pro
        - 'resolution': Is the outcome explained?
        - 'extraction': Did the narrator explicitly state the moral, life lesson, or specific takeaway?
     6. If the story has high conflict but 'extraction' is false, generate a 'gapPrompt' (a string prompting the user empathically to explain the moral of the story). Otherwise, provide null.
-    
+    7. LINGUISTIC CORRECTIONS: The narrator's cultural heritage/language background is: ${culturalContext || "Unknown"}. If the English transcript contains phonetically misspelled foreign words (e.g., Cantonese or Mandarin words rendered incorrectly into broken English by the audio transcriber), use your linguistic knowledge to intelligently deduce the intended word. Add each correction to the 'linguisticCorrections' array.
+
     If the context is short, return at least 1-2 distinct moments. If it's a long life history, return up to 5-10 major moments chronologically.
 
     Raw Context:
@@ -279,7 +338,19 @@ export async function extractHighFidelityStories(transcriptContext: string): Pro
                 },
                 required: ["context", "conflict", "resolution", "extraction"]
               },
-              gapPrompt: { type: Type.STRING, nullable: true }
+              gapPrompt: { type: Type.STRING, nullable: true },
+              linguisticCorrections: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    original: { type: Type.STRING },
+                    guess: { type: Type.STRING },
+                    meaning: { type: Type.STRING }
+                  },
+                  required: ["original", "guess", "meaning"]
+                }
+              }
             },
             required: ["id", "era", "title", "synopsis", "psychometrics", "rubric"]
           }
@@ -299,9 +370,9 @@ export async function extractHighFidelityStories(transcriptContext: string): Pro
   return [];
 }
 
-export async function updateHighFidelityStoriesIncrementally(cachedStories: HighFidelityStory[], newTranscript: string): Promise<HighFidelityStory[]> {
+export async function updateHighFidelityStoriesIncrementally(cachedStories: HighFidelityStory[], newTranscript: string, culturalContext?: string): Promise<HighFidelityStory[]> {
   if (!newTranscript.trim() || cachedStories.length === 0) {
-    return extractHighFidelityStories(newTranscript);
+    return extractHighFidelityStories(newTranscript, culturalContext);
   }
 
   const prompt = `
@@ -316,7 +387,8 @@ export async function updateHighFidelityStoriesIncrementally(cachedStories: High
        - If YES: UPDATE the existing story. You can rewrite the 'synopsis' to include the new details, drastically update the 'psychometrics' (score 0 to 100 on Realistic, Investigative, Artistic, Social, Enterprising, Conventional) based on the new context, and update the 'rubric' booleans (e.g., if the new text provides the Conflict or Extraction that was missing). Remove the 'gapPrompt' if 'extraction' becomes true.
        - If NO: CREATE entirely new story objects and APPEND them to the array.
     3. Ensure ALL stories (existing and new) strictly adhere to the previously defined format. 
-       - 'era' MUST strictly be "Childhood", "Teens", "Twenties", "Thirties", "Forties", or "Fifties+".
+       - 'era' MUST strictly be "Childhood", "Teens", "Twenties", "Thirties", "Forties", "Fifties+", or "Timeless" (Use "Timeless" for generic themes, recipes, and life philosophies).
+    4. LINGUISTIC CORRECTIONS: The narrator's cultural heritage/language background is: ${culturalContext || "Unknown"}. If the English transcript contains phonetically misspelled foreign words (e.g., Cantonese or Mandarin words rendered incorrectly into broken English by the audio transcriber), use your linguistic knowledge to intelligently deduce the intended word. Add each correction to the 'linguisticCorrections' array.
     
     Return the FULL, ENTIRE aggregated JSON array of all stories (updated existing ones + unmodified existing ones + newly appended ones).
 
@@ -363,7 +435,19 @@ export async function updateHighFidelityStoriesIncrementally(cachedStories: High
                 },
                 required: ["context", "conflict", "resolution", "extraction"]
               },
-              gapPrompt: { type: Type.STRING, nullable: true }
+              gapPrompt: { type: Type.STRING, nullable: true },
+              linguisticCorrections: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    original: { type: Type.STRING },
+                    guess: { type: Type.STRING },
+                    meaning: { type: Type.STRING }
+                  },
+                  required: ["original", "guess", "meaning"]
+                }
+              }
             },
             required: ["id", "era", "title", "synopsis", "psychometrics", "rubric"]
           }
