@@ -3,12 +3,22 @@
 import { useState, useEffect } from "react";
 import { ArrowLeft, BookOpen, Clock, Target, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, Sparkles, Crosshair, Loader2, Library, Globe } from "lucide-react";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { HighFidelityStory } from "@/lib/rag";
 import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile } from "@/lib/firebase/db";
-import { extractHighFidelityStoriesAction } from "@/app/actions";
+import { extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction } from "@/app/actions";
+
+const ERA_ORDER: Record<string, number> = {
+  "Childhood": 1,
+  "Teens": 2,
+  "Twenties": 3,
+  "Thirties": 4,
+  "Forties": 5,
+  "Fifties+": 6,
+  "Timeless": 99
+};
 
 const MOCK_STORIES: HighFidelityStory[] = [
   {
@@ -85,8 +95,23 @@ export default function StoriesPage() {
   
   const [stories, setStories] = useState<HighFidelityStory[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [mappingProgress, setMappingProgress] = useState("");
+  const [progressPercent, setProgressPercent] = useState<number | null>(null);
+  const [eta, setEta] = useState<string>("");
   const [hasScanned, setHasScanned] = useState(false);
   const [isLoadingCache, setIsLoadingCache] = useState(true);
+
+  // Safeguard: Prevent accidental reloads when processing
+  useEffect(() => {
+    if (!isAnalyzing) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isAnalyzing]);
 
   useEffect(() => {
     async function loadCached() {
@@ -122,28 +147,72 @@ export default function StoriesPage() {
         return;
       }
 
-      // Combine text context
-      const vaultContext = sources.map(s => `[Source: ${s.fileName}]\n${s.textContent}`).join("\n\n");
-
       // 2. Fetch profile for linguistic/cultural background
       const profile = await fetchUserProfile(user.uid);
-
-      // 3. Transmit to Gemini Pipeline
       const linguisticContext = [profile?.culturalHeritage, profile?.primaryLanguage, profile?.secondaryLanguages].filter(Boolean).join(" | ");
-      const newStories = await extractHighFidelityStoriesAction(vaultContext, linguisticContext);
+
+      // 3. Map-Reduce Pipeline Loop
+      let currentCache: HighFidelityStory[] = [];
+      // Aggressive chunking (5000 chars = ~1000 words). This guarantees Gemini returns extremely quickly (<10sec), bypassing any local VPN/ISP idle socket timeouts that cause 'fetch failed'.
+      const CHUNK_SIZE = 5000; 
+      const AVG_SECONDS_PER_CHUNK = 8;
       
-      if (newStories && newStories.length > 0) {
-        // 3. CACHE the results to Firebase immediately!
-        await saveHighFidelityStories(user.uid, newStories);
-        setStories(newStories);
-      } else {
-        alert("The AI could not confidently extract stories from the text provided. Ensure your journals contain specific narrative events.");
+      // Calculate total chunks across all sources for accurate ETA
+      let totalChunks = 0;
+      sources.forEach(s => {
+         totalChunks += Math.ceil((s.textContent?.length || 1) / CHUNK_SIZE);
+      });
+      let chunksProcessed = 0;
+
+      for (let i = 0; i < sources.length; i++) {
+        const s = sources[i];
+        const text = s.textContent || "";
+        const numChunks = Math.ceil(text.length / CHUNK_SIZE);
+        
+        for (let c = 0; c < numChunks; c++) {
+           const estimatedSeconds = (totalChunks - chunksProcessed) * AVG_SECONDS_PER_CHUNK;
+           setEta(`~${Math.ceil(estimatedSeconds / 60)} min ${estimatedSeconds % 60} sec remaining`);
+           setProgressPercent((chunksProcessed / totalChunks) * 100);
+           
+           if (numChunks > 1) {
+              setMappingProgress(`Extracting events from: ${s.fileName || `Document ${i + 1}`} (Part ${c + 1}/${numChunks})`);
+           } else {
+              setMappingProgress(`Extracting events from: ${s.fileName || `Document ${i + 1}`} (${i + 1}/${sources.length})`);
+           }
+
+           const chunkText = text.substring(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
+           const sourceContext = `[Source: ${s.fileName}]\n${chunkText}`;
+           
+           try {
+              const mappedStories = await extractHighFidelityStoriesAction(sourceContext, linguisticContext);
+              if (mappedStories && mappedStories.length > 0) {
+                 setMappingProgress(`Bridging timeline for: ${s.fileName || `Document ${i + 1}`}...`);
+                 currentCache = await reduceHighFidelityStoriesAction(currentCache, mappedStories, linguisticContext);
+              }
+           } catch (mapErr: any) {
+              console.error("Map-Reduce failed on specific chunk:", s.id, mapErr);
+           }
+           chunksProcessed++;
+        }
       }
-    } catch (e) {
+      
+      if (currentCache.length > 0) {
+        setProgressPercent(100);
+        setEta("Almost done!");
+        setMappingProgress("Finalizing chronological sorting and preserving to Firebase...");
+        await saveHighFidelityStories(user.uid, currentCache);
+        setStories(currentCache);
+      } else {
+        alert("The AI returned an empty storyline. Ensure your journals contain specific narrative events or reduce the complexity of the files.");
+      }
+    } catch (e: any) {
       console.error(e);
-      alert("Encountered an error compiling the stories. Please try again.");
+      alert("AI Compilation Error: " + (e.message || "Please try again."));
     } finally {
       setIsAnalyzing(false);
+      setMappingProgress("");
+      setProgressPercent(null);
+      setEta("");
       setHasScanned(true);
     }
   };
@@ -209,7 +278,7 @@ export default function StoriesPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-12 xl:gap-8">
+          <div className="grid grid-cols-1 xl:grid-cols-[1.45fr_1fr] gap-12 xl:gap-8">
             
             {/* Left Column: Timeline */}
             <div className="relative">
@@ -219,7 +288,10 @@ export default function StoriesPage() {
               )}
               
               <div className="space-y-16">
-                {!isAnalyzing && (stories.length > 0 ? stories : (hasScanned ? [] : MOCK_STORIES)).filter(s => s.era !== "Timeless").map((story, i) => (
+                {!isAnalyzing && [...(stories.length > 0 ? stories : (hasScanned ? [] : MOCK_STORIES))]
+                  .filter(s => s.era !== "Timeless")
+                  .sort((a, b) => (ERA_ORDER[a.era] || 99) - (ERA_ORDER[b.era] || 99))
+                  .map((story, i) => (
               <div key={story.id || i} className="relative pl-20 md:pl-[210px]">
                 
                 {/* Timeline Dot */}
@@ -289,22 +361,30 @@ export default function StoriesPage() {
                       <div className="space-y-3">
                         
                         <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/50">
-                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Context (The Setup)</span>
+                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">
+                            Context<br /><span className="text-xs opacity-75">(The Setup)</span>
+                          </span>
                           {story.rubric?.context ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-zinc-300 dark:text-zinc-700" />}
                         </div>
                         
                         <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/50">
-                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Conflict (The Pivot)</span>
+                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">
+                            Conflict<br /><span className="text-xs opacity-75">(The Pivot)</span>
+                          </span>
                           {story.rubric?.conflict ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-zinc-300 dark:text-zinc-700" />}
                         </div>
 
                         <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/50">
-                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Resolution (The Outcome)</span>
+                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">
+                            Resolution<br /><span className="text-xs opacity-75">(The Outcome)</span>
+                          </span>
                           {story.rubric?.resolution ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-zinc-300 dark:text-zinc-700" />}
                         </div>
 
                         <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-transparent">
-                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Extraction (The Moral)</span>
+                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">
+                            Extraction<br /><span className="text-xs opacity-75">(The Moral)</span>
+                          </span>
                           {story.rubric?.extraction ? (
                             <CheckCircle2 size={16} className="text-emerald-500" />
                           ) : (
@@ -435,6 +515,38 @@ export default function StoriesPage() {
         </div>
 
       </div>
+
+      <AnimatePresence>
+        {isAnalyzing && (
+          <motion.div 
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            className="fixed bottom-0 left-0 right-0 z-[100] bg-indigo-600 text-white p-4 shadow-2xl border-t border-indigo-400"
+          >
+            <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Loader2 className="animate-spin text-indigo-200" size={24} />
+                <div>
+                  <h4 className="font-bold flex items-center justify-between gap-4">
+                     Extracting High-Fidelity Stories
+                     {eta && <span className="text-xs font-medium text-emerald-300 bg-emerald-900/40 px-2 py-0.5 rounded border border-emerald-500/30 font-mono tracking-tight">{eta}</span>}
+                  </h4>
+                  <p className="text-sm text-indigo-200">
+                     {mappingProgress || "The AI is synthetically reading your entire Legacy Vault..."} Please do not close or refresh.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500 overflow-hidden">
+               <div 
+                 className={`h-full bg-indigo-300 ${progressPercent === null ? 'w-full animate-[pulse_1s_ease-in-out_infinite]' : 'transition-all duration-1000 ease-in-out'}`} 
+                 style={{ width: progressPercent !== null ? `${progressPercent}%` : '100%' }} 
+               />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

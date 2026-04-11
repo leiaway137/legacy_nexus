@@ -1,18 +1,42 @@
 import { NextResponse } from 'next/server';
-import { chatWithLegacyStream } from '@/lib/rag';
+import { chatWithLegacyStream, generateTextEmbedding } from '@/lib/rag';
+import { getPineconeIndex } from '@/lib/pinecone/client';
 
-export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
-
 export async function POST(req: Request) {
   try {
-    const { context, question, history, linguisticContext } = await req.json();
+    const { userId, question, history, linguisticContext, relationalContext } = await req.json();
 
-    if (!context || !question) {
+    if (!userId || !question) {
        return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
     }
 
-    const stream = await chatWithLegacyStream(context, question, history || [], linguisticContext);
+    // 1. Vectorize the User Question
+    const questionVector = await generateTextEmbedding(question);
+    if (!questionVector || questionVector.length !== 3072) {
+       throw new Error("Failed to generate embedding for the question.");
+    }
+
+    // 2. Query Pinecone for the Top 10 Context Chunks natively at the Edge!
+    const index = getPineconeIndex();
+    const queryResponse = await index.query({
+        vector: questionVector,
+        topK: 40,
+        namespace: userId,
+        includeMetadata: true
+    });
+
+    // 3. Assemble the perfectly scoped context string with universal perspective binding
+    const dynamicContext = queryResponse.matches
+       .map(match => {
+          const perspectiveText = match.metadata?.perspective ? `[Source Perspective: ${match.metadata.perspective}]\n` : "";
+          const contentText = match.metadata?.text || "";
+          return contentText ? `${perspectiveText}${contentText}` : "";
+       })
+       .filter(text => text.length > 0)
+       .join("\n\n---\n\n");
+
+    const stream = await chatWithLegacyStream(dynamicContext, question, history || [], linguisticContext, relationalContext);
     
     // Return a streaming response back to the client natively!
     return new Response(stream, {

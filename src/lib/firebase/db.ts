@@ -1,13 +1,13 @@
 import { getFirestore, collection, addDoc, serverTimestamp, query, where, getDocs, doc, deleteDoc, orderBy, getDoc, setDoc } from "firebase/firestore";
 import { app } from "./client";
-import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory } from "@/lib/rag";
+import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview } from "@/lib/rag";
 
 export const db = getFirestore(app);
 
 export async function saveCompiledSession(userId: string, chunks: TranscriptChunk[], questions: string[], synopsis: string, wisdomSummaries: WisdomSummary[]) {
   try {
-    const sessionRef = collection(db, "legacy_sessions");
-    const docRef = await addDoc(sessionRef, {
+    const docRef = doc(db, "legacy_session_active", userId);
+    await setDoc(docRef, {
       userId,
       synopsis,
       totalChunks: chunks.length,
@@ -15,10 +15,10 @@ export async function saveCompiledSession(userId: string, chunks: TranscriptChun
       extractedWisdomTags: chunks.flatMap(c => c.wisdomTags),
       wisdomSummaries, // Extracted thematic summaries
       aiRecommendedQuestions: questions,
-      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
-    console.log("Successfully saved AI Session to Firebase with ID:", docRef.id);
-    return docRef.id;
+    console.log("Successfully overwrote active AI Session for user");
+    return userId;
   } catch (error) {
     console.error("Firebase write permission or configuration error:", error);
     return null;
@@ -58,22 +58,20 @@ export async function fetchHighFidelityStories(userId: string): Promise<HighFide
 
 export async function fetchUserSessions(userId: string) {
   try {
-    const q = query(
-      collection(db, "legacy_sessions"), 
-      where("userId", "==", userId)
-      // orderBy("createdAt", "desc") // requires composite index, leaving standard query for now
-    );
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const docRef = doc(db, "legacy_session_active", userId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+       return [{ id: docSnap.id, ...docSnap.data() }];
+    }
   } catch (error) {
-    console.error("Failed to fetch user sessions:", error);
-    return [];
+    console.error("Failed to fetch user active session:", error);
   }
+  return [];
 }
 
-export async function deleteSession(sessionId: string) {
+export async function deleteSession(userId: string) {
   try {
-    await deleteDoc(doc(db, "legacy_sessions", sessionId));
+    await deleteDoc(doc(db, "legacy_session_active", userId));
   } catch (error) {
     console.error("Failed to delete historical session:", error);
   }
@@ -170,5 +168,104 @@ export async function updateUserProfile(userId: string, data: Partial<UserProfil
   } catch (error) {
     console.error("Failed to update user profile:", error);
     return false;
+  }
+}
+
+// ---- DASHBOARD CHAT PERSISTENCE ----
+
+export async function saveChatHistory(userId: string, messages: {role: string, text: string}[]) {
+  try {
+    const docRef = doc(db, "legacy_chats", userId);
+    await setDoc(docRef, { messages, updatedAt: serverTimestamp() }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error("Failed to save chat history:", error);
+    return false;
+  }
+}
+
+export async function fetchChatHistory(userId: string): Promise<{role: string, text: string}[]> {
+  try {
+    const docRef = doc(db, "legacy_chats", userId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists() && docSnap.data().messages) {
+      return docSnap.data().messages;
+    }
+  } catch (error) {
+    console.error("Failed to fetch chat history:", error);
+  }
+  return [];
+}
+
+// ---- CONTACTS & NEXUSLINK PERSISTENCE ----
+
+export interface Contact {
+  id: string; // The firestore doc ID
+  userId: string;
+  originalName: string; // Original name from transcript
+  completeName: string; // Corrected/Full name dynamically concatenated
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  relationship?: string; // Formal role/relationship to narrator
+  aliases: string[]; // Alternate spellings
+  email: string;
+  linkedAccountId: string;
+  updatedAt?: any;
+}
+
+export async function fetchContacts(userId: string): Promise<Contact[]> {
+  try {
+    const q = query(collection(db, "legacy_contacts"), where("userId", "==", userId));
+    const snap = await getDocs(q);
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Contact));
+  } catch (err) {
+    console.error("Failed to fetch contacts:", err);
+    return [];
+  }
+}
+
+export async function saveContact(userId: string, contactData: Partial<Contact> & { id?: string }): Promise<string | null> {
+  try {
+    const colRef = collection(db, "legacy_contacts");
+    if (contactData.id) {
+      // Update existing
+      const docRef = doc(db, "legacy_contacts", contactData.id);
+      await setDoc(docRef, { ...contactData, updatedAt: serverTimestamp() }, { merge: true });
+      return contactData.id;
+    } else {
+      // Create new
+      const docRef = await addDoc(colRef, { ...contactData, userId, updatedAt: serverTimestamp() });
+      return docRef.id;
+    }
+  } catch (err) {
+    console.error("Failed to save contact:", err);
+    return null;
+  }
+}
+
+export interface PersistentDashboardState extends DashboardOverview {
+  processedSourceIds: string[];
+}
+
+export async function fetchDashboardState(userId: string): Promise<PersistentDashboardState | null> {
+  try {
+    const docRef = doc(db, "legacy_dashboard_active", userId);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return snap.data() as PersistentDashboardState;
+    }
+  } catch (error) {
+    console.error("Failed to fetch dashboard state:", error);
+  }
+  return null;
+}
+
+export async function saveDashboardState(userId: string, state: PersistentDashboardState) {
+  try {
+    const docRef = doc(db, "legacy_dashboard_active", userId);
+    await setDoc(docRef, { ...state, updatedAt: Date.now() });
+  } catch (err) {
+    console.error("Failed to save dashboard state:", err);
   }
 }

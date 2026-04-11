@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, updateHighFidelityStoriesAction } from "./actions";
-import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, type NotebookSource } from "@/lib/firebase/db";
-import { type TranscriptChunk, type WisdomSummary } from "@/lib/rag";
+import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, embedAndUpsertToPineconeAction, deletePineconeSourceAction, deleteAllPineconeResourcesAction, recompileStoriesWithContactsAction, reduceDashboardOverviewAction } from "./actions";
+import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/firebase/db";
+import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview } from "@/lib/rag";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import Link from "next/link";
@@ -11,28 +11,55 @@ import { Sparkles, Search, BookOpen, FileText, X, PlusCircle, LogOut, ArrowRight
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { InterviewerModal } from "@/components/InterviewerModal";
+import { NetworkModal } from "@/components/NetworkModal";
 import { auth } from "@/lib/firebase/client";
+
+export interface UploadProgressState {
+  [fileName: string]: {
+    stage: string;
+    progress: number;
+  };
+}
 
 export default function Home() {
   const { user, loading } = useAuth();
   const [sources, setSources] = useState<NotebookSource[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [activeUploads, setActiveUploads] = useState<UploadProgressState>({});
   
   const [chunks, setChunks] = useState<TranscriptChunk[]>([]);
   const [questions, setQuestions] = useState<string[]>([]);
   const [synopsis, setSynopsis] = useState<string>("");
   
   const [chatMessages, setChatMessages] = useState<{role: string, text: string}[]>([]);
+  const [activeStreamText, setActiveStreamText] = useState("");
   const [chatInput, setChatInput] = useState("");
   const [isChatting, setIsChatting] = useState(false);
   const [wisdomSummaries, setWisdomSummaries] = useState<WisdomSummary[]>([]);
   const [tagSearchQuery, setTagSearchQuery] = useState("");
   
   const [isProcessing, setIsProcessing] = useState(false);
+  const [dashboardProgress, setDashboardProgress] = useState<{current: number, total: number, etaSeconds: number} | null>(null);
+
+  // Safeguard: Prevent accidental reloads when processing
+  useEffect(() => {
+    if (!isProcessing) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ''; // Required by standard
+      return '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isProcessing]);
+
   const [isInterviewerThinking, setIsInterviewerThinking] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [showVault, setShowVault] = useState(false);
   const [isInterviewerOpen, setIsInterviewerOpen] = useState(false);
+  
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [showNetwork, setShowNetwork] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -50,39 +77,34 @@ export default function Home() {
     if (!user) return;
     setIsProcessing(true);
 
-    // 1. Fetch History
-    const sessions = await fetchUserSessions(user.uid);
-    const sortedHistory = sessions.sort((a: any, b: any) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    setHistory(sortedHistory);
-
-    // 2. Fetch Sources
+    // 1. Fetch Sources and Contacts
     const cloudSources = await fetchUserSources(user.uid);
     setSources(cloudSources);
+    const loadedContacts = await fetchContacts(user.uid);
+    setContacts(loadedContacts);
 
-    // 3. Hydrate UI efficiently
-    if (cloudSources.length > 0 && sortedHistory.length > 0) {
-       // Load the exact state from the most recent save instead of burning tokens
-       const latestSession = sortedHistory[0] as any;
-       setSynopsis(latestSession.synopsis || "No synopsis available.");
-       setChunks(latestSession.chunks || []);
-       setQuestions(latestSession.aiRecommendedQuestions || []);
-       
-       if (!latestSession.wisdomSummaries && latestSession.chunks) {
-          const uniqueTags = Array.from(new Set<string>(latestSession.chunks.flatMap((c: any) => c.wisdomTags || [])));
-          setWisdomSummaries(uniqueTags.map(tag => ({ tag, summary: "AI summary pending for historical archive." })));
+    // 2. Fetch Persistent Dashboard State
+    const dashboardState = await fetchDashboardState(user.uid);
+    
+    // 3. Diff and Hydrate UI
+    if (cloudSources.length > 0) {
+       // If the persistent state is perfectly synced with current vault, just hydrate instantly!
+       if (dashboardState && dashboardState.processedSourceIds.length === cloudSources.length) {
+          setSynopsis(dashboardState.synopsis || "No synopsis available.");
+          setWisdomSummaries(dashboardState.wisdom || []);
+          setQuestions(dashboardState.questions || []);
+          const pastChats = await fetchChatHistory(user.uid);
+          setChatMessages(pastChats.slice(-6));
        } else {
-          setWisdomSummaries(latestSession.wisdomSummaries || []);
+          // Rolling Iteration: Unprocessed PDFs detected! Let's incrementally map-reduce them.
+          await handleAutoProcess(cloudSources, dashboardState);
        }
-       setChatMessages(latestSession.chatMessages || []);
-    } else if (cloudSources.length > 0 && sortedHistory.length === 0) {
-       // Fallback: If sources exist but no overview ever compiled
-       await handleAutoProcess(cloudSources);
     } else {
        // Empty state
        setSynopsis("");
-       setChunks([]);
        setWisdomSummaries([]);
        setChatMessages([]);
+       setActiveStreamText("");
        setQuestions([]);
     }
     
@@ -93,100 +115,231 @@ export default function Home() {
     if (!user || files.length === 0) return;
     setIsUploading(true);
     const uploadedSources: NotebookSource[] = [];
+    
+    // Initialize Progress State for all files
+    const initialProgress: UploadProgressState = {};
+    files.forEach(f => initialProgress[f.name] = { stage: "Queued", progress: 0 });
+    setActiveUploads(initialProgress);
+    
+    const rawMappedStories: HighFidelityStory[] = [];
+
+    const profile = await fetchUserProfile(user.uid);
+    const subjectName = profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() : (user.displayName || "the user");
 
     // Process and extract to Firebase Persistence sequentially
     for (const file of files) {
+      setActiveUploads(prev => ({ ...prev, [file.name]: { stage: "Extracting Text", progress: 10 } }));
       const formData = new FormData();
       formData.append("file", file);
       const text = await uploadAndExtractAction(formData);
       
+      setActiveUploads(prev => ({ ...prev, [file.name]: { stage: "Mapping Internal Story Arcs", progress: 30 } }));
+      
+      // Batch slice text to completely bypass Vercel 1MB payload limits and timeouts!
+      const textChunks = [];
+      for (let i = 0; i < text.length; i += 15000) {
+         textChunks.push(text.substring(i, i + 15000));
+      }
+      
+      for (let j = 0; j < textChunks.length; j++) {
+         if (textChunks.length > 1) {
+             setActiveUploads(prev => ({ ...prev, [file.name]: { stage: `Mapping Era Threads (${j+1}/${textChunks.length})`, progress: 30 + (20 * (j/textChunks.length)) } }));
+         }
+         const chunkStories = await extractHighFidelityStoriesAction(textChunks[j], undefined, undefined, subjectName);
+         rawMappedStories.push(...chunkStories);
+         
+         // 500ms breather to prevent SocketError / connection drops on Vercel Native Fetch bounds
+         await new Promise(r => setTimeout(r, 500));
+      }
+      
+      setActiveUploads(prev => ({ ...prev, [file.name]: { stage: "Uploading to Firebase Storage", progress: 50 } }));
       const savedDoc = await uploadNotebookSource(user.uid, file.name, file.size, text);
-      if (savedDoc) uploadedSources.push(savedDoc);
+      
+      if (savedDoc) {
+        uploadedSources.push(savedDoc);
+        setActiveUploads(prev => ({ ...prev, [file.name]: { stage: "Vectorizing via Pinecone Agents", progress: 70 } }));
+        await embedAndUpsertToPineconeAction(user.uid, savedDoc.id, text);
+      }
+      
+      setActiveUploads(prev => ({ ...prev, [file.name]: { stage: "Waiting for Global Synthesis", progress: 80 } }));
     }
+    
+    // Group Update: Set Global High Fidelity Progress
+    setActiveUploads(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(k => next[k] = { stage: "Reducing & Synthesizing Global Timeline...", progress: 90 });
+        return next;
+    });
     
     // Once completely pushed to Cloud, amalgamate with current sources and trigger RAG
     const newSourceState = [...sources, ...uploadedSources];
     setSources(newSourceState);
-    setIsUploading(false);
     
-    // --- NEW: Incremental High-Fidelity Update ---
-    if (user && uploadedSources.length > 0) {
+    // --- NEW: Map-Reduce High-Fidelity Synthesis ---
+    if (user && rawMappedStories.length > 0) {
       try {
         const currentStories = await fetchHighFidelityStories(user.uid);
-        const newText = uploadedSources.map(s => s.textContent).join("\n\n");
-        const updatedStories = await updateHighFidelityStoriesAction(currentStories, newText);
+        
+        const loadedUserContacts = await fetchContacts(user.uid);
+        let relationalContext = "";
+        if (loadedUserContacts.length > 0) {
+           relationalContext = "Identity Map: " + loadedUserContacts.map(c => `'${c.originalName}', '${c.aliases.join("', '")}' -> ${c.completeName}`).join(" | ");
+        }
+
+        const updatedStories = await reduceHighFidelityStoriesAction(currentStories, rawMappedStories, undefined, relationalContext);
         await saveHighFidelityStories(user.uid, updatedStories);
+
+        // Auto-Harvest Contacts
+        const existingNames = new Set(loadedUserContacts.flatMap(c => [c.originalName, c.completeName, ...(c.aliases || [])]));
+        const discoveredNames = new Set<string>();
+        updatedStories.forEach(story => {
+           story.peopleMentioned?.forEach(name => {
+              if (!existingNames.has(name)) discoveredNames.add(name);
+           });
+        });
+        
+        for (const name of discoveredNames) {
+           await saveContact(user.uid, { originalName: name, completeName: name, aliases: [], email: "", linkedAccountId: "" } as Contact);
+        }
+        if (discoveredNames.size > 0) setContacts(await fetchContacts(user.uid));
+
       } catch (err) {
-        console.error("Incremental compilation failed:", err);
+        console.error("Map-Reduce synthesis failed:", err);
       }
     }
     // ---------------------------------------------
     
     await handleAutoProcess(newSourceState);
+    
+    // Finish UI Bar
+    setActiveUploads(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(k => next[k] = { stage: "Complete", progress: 100 });
+        return next;
+    });
+    
+    // Hide UI
+    setTimeout(() => {
+        setActiveUploads({});
+        setIsUploading(false);
+    }, 2000);
   };
 
-  const handleAutoProcess = async (notebookFiles: NotebookSource[]) => {
+  const handleAutoProcess = async (notebookFiles: NotebookSource[], currentState: PersistentDashboardState | null = null) => {
     if (!user) return;
     if (notebookFiles.length === 0) {
       setSynopsis("");
-      setChunks([]);
+      setWisdomSummaries([]);
       setQuestions([]);
+      await saveChatHistory(user.uid, []);
+      // MUST WIPE PERSISTENT STATE FULLY IF NO SOURCES REMAIN
+      await saveDashboardState(user.uid, { synopsis: "", wisdom: [], questions: [], processedSourceIds: [] });
       return;
     }
     
     setIsProcessing(true);
-    setSynopsis("");
-    setChunks([]);
-    setQuestions([]);
-    setWisdomSummaries([]);
-    setChatMessages([]);
+    let activeState: PersistentDashboardState = currentState || {
+        synopsis: "",
+        wisdom: [],
+        questions: [],
+        processedSourceIds: []
+    };
 
     try {
-      let combinedTranscript = "";
-      for (const src of notebookFiles) {
-        combinedTranscript += `\n\n--- SOURCE: ${src.fileName} ---\n${src.textContent}`;
+      // Find which files haven't been summarized yet
+      const unprocessedFiles = notebookFiles.filter(src => src.id && !activeState.processedSourceIds.includes(src.id));
+      
+      if (unprocessedFiles.length === 0) {
+          setIsProcessing(false);
+          setDashboardProgress(null);
+          return; // Everything already mapped!
       }
 
-      // Step 1: Synopsis
-      const syn = await generateSynopsisAction(combinedTranscript);
-      setSynopsis(syn);
+      setSynopsis("Iterating over new additions to compile Legacy Overview...");
+      
+      let processedCount = 0;
+      const totalDocs = unprocessedFiles.length;
+      let startTime = Date.now();
+      
+      setDashboardProgress({ current: 0, total: totalDocs, etaSeconds: 0 });
 
-      // Step 2: Extract Timeline (Background)
-      const newChunks = await processTranscriptAction(combinedTranscript);
-      setChunks(newChunks);
+      const profile = await fetchUserProfile(user.uid);
+      const subjectName = profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() : (user.displayName || "the user");
 
-      // Step 3: Extract Wisdom Summaries
-      const newWisdom = await generateWisdomSummariesAction(combinedTranscript);
-      setWisdomSummaries(newWisdom);
-
-      // Step 4: Extract Questions
-      if (newChunks.length > 0 && !newChunks[0].text.startsWith("SYSTEM ERROR")) {
-        setIsInterviewerThinking(true);
-        const summaryContext = newChunks.map((c) => c.text).join(" ");
-        const newQs = await generateQuestionsAction(summaryContext);
-        setQuestions(newQs);
-        setIsInterviewerThinking(false);
-
-        // Step 5: Background Vault Save
-        await saveCompiledSession(user.uid, newChunks, newQs, syn, newWisdom);
-        await hydrateDashboardState();
+      for (const src of unprocessedFiles) {
+          const safeText = src.textContent ? src.textContent.substring(0, 15000) : "";
+          if (!safeText) {
+             processedCount++;
+             continue;
+          }
+          
+          // Map-Reduce this single file into the rolling dashboard overview mapping exclusively to the Main Subject
+          const updatedOverview = await reduceDashboardOverviewAction(activeState, safeText, subjectName);
+          
+          processedCount++;
+          const elapsed = Date.now() - startTime;
+          const avg = elapsed / processedCount;
+          const eta = Math.round((avg * (totalDocs - processedCount)) / 1000);
+          setDashboardProgress({ current: processedCount, total: totalDocs, etaSeconds: eta });
+          
+          // 1500ms breather to completely prevent 'SocketError: other side closed'
+          await new Promise(r => setTimeout(r, 1500));
+          
+          if (updatedOverview) {
+             activeState = {
+                 ...updatedOverview,
+                 processedSourceIds: [...activeState.processedSourceIds, src.id!]
+             };
+             
+             // Update the UI dynamically during the loop!
+             setSynopsis(activeState.synopsis);
+             setWisdomSummaries(activeState.wisdom);
+             setQuestions(activeState.questions);
+          }
       }
+
+      // Final Persistent Save to Firestore
+      await saveDashboardState(user.uid, activeState);
+      await saveChatHistory(user.uid, []); // Flush chats when vault structure completely changes
     } catch (e) {
       console.error(e);
+      setSynopsis(activeState.synopsis || "Synopsis unavailable. Waiting on background process to cycle.");
     } finally {
       setIsProcessing(false);
+      setDashboardProgress(null); // Reset progress
     }
   };
 
   const removeSource = async (indexToRemove: number) => {
     const targetSource = sources[indexToRemove];
-    if (targetSource && targetSource.id) {
-       await deleteNotebookSource(targetSource.id);
-    }
     
+    // Optimistic UI Update: immediately slice the file out so the user sees it disappear.
     const newSources = sources.filter((_, idx) => idx !== indexToRemove);
     setSources(newSources);
-    handleAutoProcess(newSources); // dynamically re-evaluate the overview!
+    
+    // Flush the persistent chat since the timeline facts are being altered!
+    setChatMessages([]);
+    setActiveStreamText("");
+    if (user) {
+       await saveChatHistory(user.uid, []);
+    }
+
+    // Fire off re-evaluation immediately in the background
+    handleAutoProcess(newSources); 
+
+    if (targetSource && targetSource.id) {
+       await deleteNotebookSource(targetSource.id);
+       
+       // Scrub orphaned Vectors from Pinecone natively!
+       if (user) {
+          if (newSources.length === 0) {
+             // Sweep the entire namespace if vault is emptied!
+             await deleteAllPineconeResourcesAction(user.uid);
+          } else {
+             await deletePineconeSourceAction(user.uid, targetSource.id);
+          }
+       }
+    }
 
     // --- NEW: Reconciliation Recompile ---
     if (user) {
@@ -243,18 +396,25 @@ export default function Home() {
       linguisticContext = [profile?.culturalHeritage, profile?.primaryLanguage, profile?.secondaryLanguages].filter(Boolean).join(" | ");
     }
 
-    // Create assistant message placeholder immediately
-    setChatMessages([...newHistory, { role: "assistant", text: "" }]);
+    let relationalContext = "";
+    if (contacts.length > 0) {
+       relationalContext = "Identity Map: " + contacts.map(c => `'${c.originalName}', '${c.aliases.join("', '")}' -> ${c.completeName}`).join(" | ");
+    }
+
+    // Do not create placeholder in chatMessages immediately. We will stream it in activeStreamText!
+    setChatMessages(newHistory);
+    setActiveStreamText("");
     
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          context: combinedTranscript,
+          userId: user.uid,
           question: msg,
           history: chatMessages, // omit the current user prompt since it's sent as 'question'
           linguisticContext,
+          relationalContext,
         }),
       });
 
@@ -266,26 +426,24 @@ export default function Home() {
       let displayedText = "";
       let isNetworkDone = false;
 
-      // Software Typewriter: Decouple network chunks from UI rendering for smooth 60fps output
+      // Software Typewriter: Decoupled and throttled to 60ms (approx 15fps) to prevent AST lockups
       const pumpTypewriter = () => {
         if (displayedText.length < rawStreamText.length) {
           const distance = rawStreamText.length - displayedText.length;
-          // Type faster if the network buffer gets far ahead of the UI
           const charsToAdd = Math.max(1, Math.min(distance, Math.ceil(distance / 5)));
           
           displayedText += rawStreamText.substring(displayedText.length, displayedText.length + charsToAdd);
+          setActiveStreamText(displayedText);
           
-          setChatMessages(prev => {
-             const nextState = [...prev];
-             nextState[nextState.length - 1] = { role: "assistant", text: displayedText };
-             return nextState;
-          });
-          
-          setTimeout(pumpTypewriter, 15);
+          setTimeout(pumpTypewriter, 60);
         } else if (isNetworkDone) {
+          const finalMessages = [...newHistory, { role: "assistant", text: displayedText }];
+          setChatMessages(finalMessages);
+          setActiveStreamText("");
           setIsChatting(false);
+          saveChatHistory(user.uid, finalMessages);
         } else {
-          setTimeout(pumpTypewriter, 15);
+          setTimeout(pumpTypewriter, 60);
         }
       };
       
@@ -301,11 +459,8 @@ export default function Home() {
       }
     } catch (e: any) {
       console.error("Chat Stream err:", e);
-      setChatMessages(prev => {
-           const nextState = [...prev];
-           nextState[nextState.length - 1] = { role: "assistant", text: "SYSTEM ERROR: Stream failed." };
-           return nextState;
-      });
+      setChatMessages(prev => [...prev, { role: "assistant", text: "SYSTEM ERROR: Stream failed." }]);
+      setActiveStreamText("");
       setIsChatting(false);
     }
   };
@@ -335,9 +490,19 @@ export default function Home() {
           <InterviewerModal 
             onClose={() => setIsInterviewerOpen(false)} 
             onSave={async (transcript) => {
-              const file = new File([transcript], `AI_Interview_${new Date().toISOString().split('T')[0]}.txt`, { type: "text/plain" });
+              const enrichedTranscript = `--- METADATA ---\nSOURCE: Legacy Nexus Active AI Interface Interview\nINTERVIEWER: Legacy Nexus AI\nDATE: ${new Date().toISOString().split('T')[0]}\n--- TRANSCRIPT ---\n\n${transcript}`;
+              const file = new File([enrichedTranscript], `AI_Interview_${new Date().toISOString().split('T')[0]}.txt`, { type: "text/plain" });
               await handleCloudUpload([file]);
             }} 
+          />
+        )}
+        {showNetwork && user && (
+          <NetworkModal 
+            userId={user.uid}
+            contacts={contacts}
+            sources={sources}
+            onClose={() => setShowNetwork(false)}
+            onContactsUpdated={(updatedContacts) => setContacts(updatedContacts)}
           />
         )}
       </AnimatePresence>
@@ -404,6 +569,24 @@ export default function Home() {
                 accept=".txt,.md,.csv,.pdf,application/pdf" 
               />
             </label>
+
+            {/* Dynamic Progress Trackers */}
+            {Object.keys(activeUploads).length > 0 && (
+               <div className="flex flex-col gap-3 mb-2">
+                  {Object.entries(activeUploads).map(([fileName, data]) => (
+                      <div key={fileName} className="bg-zinc-50 dark:bg-zinc-900/60 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 text-xs">
+                          <div className="flex justify-between mb-2">
+                             <span className="truncate max-w-[150px] font-medium text-zinc-700 dark:text-zinc-300">{fileName}</span>
+                             <span className="text-zinc-500 font-bold">{Math.round(data.progress)}%</span>
+                          </div>
+                          <div className="w-full bg-zinc-200 dark:bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                             <div className="bg-blue-500 h-1.5 rounded-full transition-all duration-500 ease-out" style={{width: `${data.progress}%`}}></div>
+                          </div>
+                          <span className="text-[10px] text-zinc-500 mt-2 block font-medium animate-pulse">{data.stage}</span>
+                      </div>
+                  ))}
+               </div>
+            )}
 
             <div className="relative">
               <Search size={14} className="absolute left-3 top-2.5 text-zinc-400" />
@@ -508,7 +691,7 @@ export default function Home() {
                  {(synopsis || chunks.length > 0) && (
                    <div className="mb-12">
                      <h1 className="text-3xl font-extrabold text-zinc-900 dark:text-zinc-100 mb-6 leading-tight">Legacy Overview</h1>
-                     <p className="text-base leading-relaxed text-zinc-700 dark:text-zinc-300">
+                     <p className="text-base leading-relaxed text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">
                        {synopsis}
                      </p>
                    </div>
@@ -539,7 +722,29 @@ export default function Home() {
                          </div>
                        </div>
                      ))}
-                     {isChatting && (
+                     {activeStreamText && (
+                        <div className="flex justify-start">
+                          <div className="max-w-[85%] rounded-2xl p-4 bg-zinc-100 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 rounded-tl-sm mr-auto">
+                            <div className="text-[15px] leading-relaxed break-words whitespace-pre-wrap">
+                              <ReactMarkdown 
+                                components={{
+                                  p: ({node, ...props}) => <p className="mb-3 last:mb-0" {...props} />,
+                                  strong: ({node, ...props}) => <strong className="font-bold" {...props} />,
+                                  ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-4" {...props} />,
+                                  ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-4" {...props} />,
+                                  li: ({node, ...props}) => <li className="mb-1" {...props} />,
+                                  h1: ({node, ...props}) => <h1 className="text-xl font-bold mb-3" {...props} />,
+                                  h2: ({node, ...props}) => <h2 className="text-lg font-bold mb-3" {...props} />,
+                                  h3: ({node, ...props}) => <h3 className="text-base font-bold mb-2" {...props} />
+                                }}
+                              >
+                                {activeStreamText}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+                        </div>
+                     )}
+                     {isChatting && !activeStreamText && (
                        <div className="flex justify-start">
                          <div className="bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-500 rounded-2xl rounded-tl-sm p-4 w-16 flex justify-center">
                            <Loader2 size={16} className="animate-spin" />
@@ -605,13 +810,16 @@ export default function Home() {
                     </div>
                  </div>
 
-                 <div className="bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900 hover:border-emerald-400 transition cursor-pointer p-4 rounded-xl flex items-center gap-4 hover:shadow-md">
+                 <div 
+                   onClick={() => setShowNetwork(true)}
+                   className="bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900 hover:border-emerald-400 transition cursor-pointer p-4 rounded-xl flex items-center gap-4 hover:shadow-md"
+                 >
                     <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center flex-shrink-0">
                        <Network className="text-emerald-600 dark:text-emerald-400" size={20}/>
                     </div>
                     <div className="flex flex-col">
-                       <span className="text-sm font-bold text-emerald-900 dark:text-emerald-400">Relationship Mind Map</span>
-                       <span className="text-xs text-emerald-700/70 dark:text-emerald-400/70">Visual graphic mapping relationships</span>
+                       <span className="text-sm font-bold text-emerald-900 dark:text-emerald-400">Network Entities</span>
+                       <span className="text-xs text-emerald-700/70 dark:text-emerald-400/70">Manage NexusLink Identities</span>
                     </div>
                  </div>
 
@@ -657,6 +865,42 @@ export default function Home() {
         </div>
 
       </main>
+      <AnimatePresence>
+        {isProcessing && (
+          <motion.div 
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            className="fixed bottom-0 left-0 right-0 z-[100] bg-indigo-600 text-white p-4 shadow-2xl border-t border-indigo-400"
+          >
+            <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Loader2 className="animate-spin text-indigo-200" size={24} />
+                <div>
+                  <h4 className="font-bold">
+                     {dashboardProgress ? `Synthesizing Vault Context (${dashboardProgress.current}/${dashboardProgress.total})` : "Synthesizing Vault Context"}
+                  </h4>
+                  <p className="text-sm text-indigo-200">
+                     {dashboardProgress && dashboardProgress.etaSeconds > 0 
+                         ? `Estimated time remaining: ${dashboardProgress.etaSeconds}s`
+                         : "The AI is currently processing your data. Please do not close or refresh this page."}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500 overflow-hidden">
+               {dashboardProgress ? (
+                   <div 
+                      className="h-full bg-indigo-200 transition-all duration-1000" 
+                      style={{ width: `${(dashboardProgress.current / dashboardProgress.total) * 100}%` }} 
+                   />
+               ) : (
+                   <div className="h-full bg-indigo-300 w-full animate-pulse" />
+               )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

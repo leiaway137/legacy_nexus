@@ -1,6 +1,7 @@
 "use server";
 
-import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, updateHighFidelityStoriesIncrementally } from "@/lib/rag";
+import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview } from "@/lib/rag";
+import { getPineconeIndex } from "@/lib/pinecone/client";
 // @ts-ignore - Bypass Turbopack static ESM export resolution
 import pdfParseModule from "pdf-parse/lib/pdf-parse.js";
 
@@ -29,6 +30,15 @@ export async function generateQuestionsAction(context: string): Promise<string[]
   }
 }
 
+export async function reduceDashboardOverviewAction(currentOverview: DashboardOverview | null, newTranscript: string, mainSubjectName?: string): Promise<DashboardOverview | null> {
+  try {
+    return await reduceDashboardOverview(currentOverview, newTranscript, mainSubjectName);
+  } catch (err) {
+    console.error("Action error reducing dashboard overview:", err);
+    throw err;
+  }
+}
+
 export async function uploadAndExtractAction(formData: FormData): Promise<string> {
   try {
     const file = formData.get("file") as File;
@@ -53,6 +63,102 @@ export async function uploadAndExtractAction(formData: FormData): Promise<string
   }
 }
 
+export async function embedAndUpsertToPineconeAction(userId: string, sourceId: string, text: string): Promise<boolean> {
+  try {
+    const index = getPineconeIndex();
+    
+    // 0. Autonomously deduce the relational perspective of this specific document
+    const perspectiveTag = await identifyDocumentPerspective(text);
+    console.log(`[RAG Metadata Injection] Extracted Perspective: ${perspectiveTag}`);
+    
+    // 1. Simple chunking strategy (split by double newlines or roughly 1000 characters)
+    const rawChunks = text.split(/\n\s*\n/).filter(c => c.trim().length > 50);
+    const vectors = [];
+    
+    // Batch process in chunks of 50 to avoid any Gemini API payload maximum limits and 15 RPM bottleneck
+    const BATCH_LIMIT = 50;
+    for (let i = 0; i < rawChunks.length; i += BATCH_LIMIT) {
+        const batchTexts = rawChunks.slice(i, i + BATCH_LIMIT);
+        const embeddedBatches = await generateBatchTextMappings(batchTexts);
+        
+        for (let j = 0; j < embeddedBatches.length; j++) {
+            const embeddingData = embeddedBatches[j];
+            if (embeddingData && embeddingData.length === 3072) {
+               vectors.push({
+                  id: `${sourceId}-chunk-${i + j}`,
+                  values: embeddingData,
+                  metadata: {
+                     text: batchTexts[j],
+                     sourceId: sourceId,
+                     perspective: perspectiveTag
+                  }
+               });
+            }
+        }
+    }
+    
+    // 2. Upsert vectors in batches to Pinecone using the userId as a security namespace!
+    if (vectors.length > 0) {
+       // Pinecone upsert limit is usually 100 per API request
+       const batchSize = 100;
+       for (let i = 0; i < vectors.length; i += batchSize) {
+          const batch = vectors.slice(i, i + batchSize);
+          await index.upsert({ records: batch, namespace: userId });
+       }
+    }
+    
+    return true;
+  } catch (error) {
+    console.error("Failed to embed and upsert to Pinecone:", error);
+    return false;
+  }
+}
+
+export async function deletePineconeSourceAction(userId: string, sourceId: string): Promise<boolean> {
+  try {
+    const index = getPineconeIndex();
+    const ns = index.namespace(userId);
+    
+    // Pinecone Serverless DOES NOT support deleting by metadata filter natively (404 Error).
+    // We must paginate through the namespace using the secure ID prefix and delete explicitly by IDs.
+    let paginationToken = undefined;
+    
+    // Safety break to prevent infinite loops
+    let pages = 0;
+    
+    do {
+       //@ts-ignore - dynamic properties
+       const results = await ns.listPaginated({ prefix: sourceId, paginationToken });
+       
+       if (results && results.vectors && results.vectors.length > 0) {
+           const idsToDelete = results.vectors.map(v => v.id);
+           await ns.deleteMany(idsToDelete);
+       }
+       
+       paginationToken = results?.pagination?.next;
+       pages++;
+    } while (paginationToken && pages < 100);
+    
+    console.log(`[Pinecone GC] Scrubbed all vectors for source: ${sourceId}`);
+    return true;
+  } catch (error) {
+    console.error("Failed to delete from Pinecone:", error);
+    return false;
+  }
+}
+
+export async function deleteAllPineconeResourcesAction(userId: string): Promise<boolean> {
+  try {
+    const ns = index.namespace(userId);
+    await ns.deleteAll();
+    console.log(`[Pinecone GC] Scrubbed ENTIRE namespace for user: ${userId}`);
+    return true;
+  } catch (error) {
+    console.error("Failed to delete all Pinecone vectors:", error);
+    return false;
+  }
+}
+
 
 export async function generateWisdomSummariesAction(context: string): Promise<WisdomSummary[]> {
   try {
@@ -63,9 +169,9 @@ export async function generateWisdomSummariesAction(context: string): Promise<Wi
   }
 }
 
-export async function chatWithLegacyAction(context: string, question: string, history: {role: string, text: string}[], linguisticContext?: string): Promise<string> {
+export async function chatWithLegacyAction(context: string, question: string, history: {role: string, text: string}[], linguisticContext?: string, relationalContext?: string): Promise<string> {
   try {
-    return await chatWithLegacy(context, question, history, linguisticContext);
+    return await chatWithLegacy(context, question, history, linguisticContext, relationalContext);
   } catch (error: any) {
     console.error("Failed to chat with legacy:", error);
     return "SYSTEM ERROR: " + (error?.message || error);
@@ -81,20 +187,43 @@ export async function conductActiveInterviewAction(history: { role: string; text
   }
 }
 
-export async function extractHighFidelityStoriesAction(context: string, culturalContext?: string): Promise<HighFidelityStory[]> {
+const CHRONOLOGY_MAP: Record<string, number> = {
+  "Childhood": 1,
+  "Teens": 2,
+  "Twenties": 3,
+  "Thirties": 4,
+  "Forties": 5,
+  "Fifties+": 6,
+  "Timeless": 7
+};
+
+export async function extractHighFidelityStoriesAction(context: string, culturalContext?: string, relationalContext?: string, mainSubjectName?: string): Promise<HighFidelityStory[]> {
   try {
-    return await extractHighFidelityStories(context, culturalContext);
-  } catch (error) {
+    const stories = await extractHighFidelityStories(context, culturalContext, relationalContext, mainSubjectName);
+    return stories.sort((a, b) => (CHRONOLOGY_MAP[a.era] || 99) - (CHRONOLOGY_MAP[b.era] || 99));
+  } catch (error: any) {
     console.error("Failed to extract high fidelity stories:", error);
-    return [];
+    // Rethrow to bubble up specific Gemini / token / payload errors to the client UI
+    throw new Error(error.message || "Unknown synthesis error");
   }
 }
 
-export async function updateHighFidelityStoriesAction(cachedStories: HighFidelityStory[], newTranscript: string, culturalContext?: string): Promise<HighFidelityStory[]> {
+export async function reduceHighFidelityStoriesAction(cachedStories: HighFidelityStory[], rawNewStories: HighFidelityStory[], culturalContext?: string, relationalContext?: string): Promise<HighFidelityStory[]> {
   try {
-    return await updateHighFidelityStoriesIncrementally(cachedStories, newTranscript, culturalContext);
+    const updated = await reduceHighFidelityStories(cachedStories, rawNewStories, culturalContext, relationalContext);
+    return updated.sort((a, b) => (CHRONOLOGY_MAP[a.era] || 99) - (CHRONOLOGY_MAP[b.era] || 99));
   } catch (error) {
-    console.error("Failed to update high fidelity stories:", error);
+    console.error("Failed to reduce high fidelity stories:", error);
+    return cachedStories;
+  }
+}
+
+export async function recompileStoriesWithContactsAction(cachedStories: HighFidelityStory[], relationalContext: string): Promise<HighFidelityStory[]> {
+  try {
+    const updated = await recompileHighFidelityStories(cachedStories, relationalContext);
+    return updated.sort((a, b) => (CHRONOLOGY_MAP[a.era] || 99) - (CHRONOLOGY_MAP[b.era] || 99));
+  } catch (error) {
+    console.error("Failed to recompile high fidelity stories:", error);
     return cachedStories;
   }
 }
