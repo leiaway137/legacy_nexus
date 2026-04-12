@@ -541,8 +541,8 @@ export default function StoriesPage() {
                         <Target size={14} /> Psychometric Profile
                       </h3>
                       <div className="space-y-4">
-                        {story.psychometrics?.map(metric => (
-                          <div key={metric.label}>
+                        {story.psychometrics?.map((metric, idx) => (
+                          <div key={`${metric.label}-${idx}`}>
                             <div className="flex justify-between items-end mb-1">
                               <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{metric.label}</span>
                             </div>
@@ -736,8 +736,8 @@ export default function StoriesPage() {
                           <Target size={14} /> Thematic Profile
                         </h3>
                         <div className="space-y-3">
-                          {story.psychometrics?.filter(m => m.val > 0).map(metric => (
-                            <div key={metric.label}>
+                          {story.psychometrics?.filter(m => m.val > 0).map((metric, idx) => (
+                            <div key={`${metric.label}-${idx}`}>
                               <div className="flex justify-between items-end mb-1">
                                 <span className="text-[10px] font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">{metric.label}</span>
                               </div>
