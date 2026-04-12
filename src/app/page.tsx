@@ -11,7 +11,6 @@ import { Sparkles, Search, BookOpen, FileText, X, PlusCircle, LogOut, ArrowRight
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { InterviewerModal } from "@/components/InterviewerModal";
-import { NetworkModal } from "@/components/NetworkModal";
 import { auth } from "@/lib/firebase/client";
 
 export interface UploadProgressState {
@@ -59,7 +58,6 @@ export default function Home() {
   const [isInterviewerOpen, setIsInterviewerOpen] = useState(false);
   
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [showNetwork, setShowNetwork] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -486,7 +484,7 @@ export default function Home() {
     <div className="h-screen flex flex-col bg-[#F3F4F6] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans overflow-hidden">
       
       <AnimatePresence>
-        {isInterviewerOpen && (
+        {isInterviewerOpen && user && (
           <InterviewerModal 
             onClose={() => setIsInterviewerOpen(false)} 
             onSave={async (transcript) => {
@@ -494,15 +492,6 @@ export default function Home() {
               const file = new File([enrichedTranscript], `AI_Interview_${new Date().toISOString().split('T')[0]}.txt`, { type: "text/plain" });
               await handleCloudUpload([file]);
             }} 
-          />
-        )}
-        {showNetwork && user && (
-          <NetworkModal 
-            userId={user.uid}
-            contacts={contacts}
-            sources={sources}
-            onClose={() => setShowNetwork(false)}
-            onContactsUpdated={(updatedContacts) => setContacts(updatedContacts)}
           />
         )}
       </AnimatePresence>
@@ -524,6 +513,9 @@ export default function Home() {
                  <div className="px-3 py-2 text-xs text-slate-500 truncate">{user.email}</div>
                  <Link href="/profile" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2">
                    <User size={16}/> Profile
+                 </Link>
+                 <Link href="/contacts" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2">
+                   <Network size={16}/> Address Book
                  </Link>
                  <Link href="/progress" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2">
                    <Activity size={16}/> Legacy Progress
@@ -599,18 +591,20 @@ export default function Home() {
                <span className="px-3 py-1 border border-zinc-200 dark:border-zinc-700 rounded-full">Text</span>
             </div>
 
-            {/* List the currently active persistent Cloud Sources */}
+            {/* Condensed Legacy Folder View */}
             <div className="mt-4 flex flex-col gap-1">
               <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-2">{sources.length > 0 ? "Cloud Resources" : ""}</p>
-              <AnimatePresence>
-                {sources.map((src, idx) => (
-                  <motion.div key={src.id || idx} initial={{opacity:0, x:-10}} animate={{opacity:1, x:0}} exit={{opacity:0}} className="flex items-center gap-3 p-2 hover:bg-zinc-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-transparent dark:border-zinc-800 rounded-lg group text-sm">
-                     <FileText size={16} className={`${src.fileName.endsWith('.pdf') ? 'text-red-500':'text-blue-500'}`} />
-                     <span className="flex-1 truncate font-medium">{src.fileName}</span>
-                     <button onClick={() => removeSource(idx)} className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-500"><X size={14}/></button>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
+              {sources.length > 0 && (
+                <Link href="/sources" className="flex items-center gap-4 p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl hover:shadow-md transition group">
+                   <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <FileText size={20} className="group-hover:scale-110 transition-transform"/>
+                   </div>
+                   <div className="flex flex-col">
+                      <span className="font-bold text-zinc-900 dark:text-zinc-100 text-sm">Source Vault</span>
+                      <span className="text-zinc-500 font-medium text-xs">{sources.length} document{sources.length === 1 ? '' : 's'} managed</span>
+                   </div>
+                </Link>
+              )}
             </div>
             {/* Wisdom Tags */}
             <div className="mt-8 flex flex-col gap-3 border-t border-zinc-200 dark:border-zinc-800 pt-4 flex-1 h-0">
@@ -810,9 +804,9 @@ export default function Home() {
                     </div>
                  </div>
 
-                 <div 
-                   onClick={() => setShowNetwork(true)}
-                   className="bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900 hover:border-emerald-400 transition cursor-pointer p-4 rounded-xl flex items-center gap-4 hover:shadow-md"
+                 <Link 
+                   href="/contacts"
+                   className="bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900 hover:border-emerald-400 transition cursor-pointer p-4 rounded-xl flex items-center gap-4 hover:shadow-md block"
                  >
                     <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center flex-shrink-0">
                        <Network className="text-emerald-600 dark:text-emerald-400" size={20}/>
@@ -821,7 +815,7 @@ export default function Home() {
                        <span className="text-sm font-bold text-emerald-900 dark:text-emerald-400">Network Entities</span>
                        <span className="text-xs text-emerald-700/70 dark:text-emerald-400/70">Manage NexusLink Identities</span>
                     </div>
-                 </div>
+                 </Link>
 
                  <div 
                    onClick={() => setIsInterviewerOpen(true)}

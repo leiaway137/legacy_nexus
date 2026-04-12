@@ -277,6 +277,36 @@ export async function chatWithLegacy(transcriptContext: string, question: string
   }
 }
 
+export async function generateLegacyIdentityContext(primaryRiasec: string, secondaryRiasec: string, dominantExtraction: string, dualTitle: string): Promise<string> {
+  const prompt = `
+    You are an expert biographer for Legacy Nexus.
+    The strict mathematical engine has algorithmically processed the user's Legacy transcripts.
+    
+    FACTS:
+    - Primary Operating Dimension: ${primaryRiasec}
+    - Secondary Internal Compass: ${secondaryRiasec}
+    - Dominant Life Reflection Theme: ${dominantExtraction}
+    - Assigned Hybrid Title: ${dualTitle}
+    
+    TASK: Write a single, profound, narrative-style one-sentence 'Legacy Identity' explaining why this specific mix of external trajectory and internal wisdom defines the user. Address the user directly (e.g., "You have spent your life..."). Keep the diction empathetic, highly prestigious, and sharp. Do not hallucinate extra facts. Output ONLY the one sentence string, no markdown.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+    if (response.text) {
+       let raw = response.text;
+       if (typeof raw === "function") raw = (raw as any)();
+       return raw.trim();
+    }
+  } catch (error) {
+    console.error("Gemini Archetype Context failed:", error);
+  }
+  return "You have forged a legacy deeply rooted in dynamic action and nuanced personal philosophy.";
+}
+
 export async function chatWithLegacyStream(transcriptContext: string, question: string, history: {role: string, text: string}[] = [], linguisticContext?: string, relationalContext?: string): Promise<ReadableStream> {
   if (!transcriptContext.trim()) throw new Error("No context provided.");
   let formattedHistory = history.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`).join("\\n");
@@ -292,7 +322,7 @@ export async function chatWithLegacyStream(transcriptContext: string, question: 
     - FRAGMENTED MEMORY AWARENESS: You are receiving isolated, non-sequential paragraphs retrieved from a vector database. You DO NOT have the full transcript. If these fragmented chunks contain ambiguous pronouns ("he", "she") or do not explicitly state family relationships, DO NOT wildly guess or mistakenly stitch different paragraphs together to invent a false family tree.
     - HALLUCINATION PREVENTION: If the exact answer is not clearly articulated in the specific fragments provided, you must explicitly tell the user that the retrieved memories don't contain the full detail, rather than hallucinating an incorrect narrative.
     ${linguisticContext ? `- LINGUISTIC CORRECTIONS: The speaker's cultural background/languages are: ${linguisticContext}. If you output any foreign words, recipes, or phrases that were translated phonetically in the transcript, elegantly guestimate their correct native romanization (e.g., Pinyin/Characters) and provide an English translation in brackets. NEVER output poor phonetic gibberish (e.g., instead of "Upcount E", use "Pipa Duck / 琵琶鴨").` : ''}
-    ${relationalContext ? `- IDENTITY RESOLUTION ALIAS MAP: Use the following Identity Map to normalize names. When generating output, refer to individuals by their verified canonical 'Complete Name', even if the transcripts refer to them differently. ${relationalContext}` : ''}
+    ${relationalContext ? `- IDENTITY RESOLUTION ALIAS MAP: Use the following Identity Map to perfectly understand relationships and entity names: ${relationalContext}\n    - CONVERSATIONAL NAMING RULE: Do NOT awkwardly repeat full 'Complete Names' (e.g., 'Albert Yi Lei', 'Tiffany Ann Lei') over and over. Use natural, conversational references (e.g., 'Albert', 'Tiffany', 'your dad', 'his son') just as a human would. Only use full names if formally introducing a new entity for the first time or if necessary for disambiguation. Use common sense to make the dialogue feel natural.` : ''}
     
     Context:
     "${transcriptContext}"
@@ -335,34 +365,76 @@ export interface HighFidelityStory {
     context: boolean;
     conflict: boolean;
     resolution: boolean;
-    extraction: boolean;
   };
-  gapPrompt: string | null;
+  extraction: {
+    present: boolean;
+    depthLevel: number;
+    primaryCategory: "Resilience" | "Relational" | "Philosophical" | "Competence" | "Self-Awareness" | "Regret" | "Achievement" | "Impact" | "Stewardship" | "Expression" | "Physicality" | "None";
+    secondaryCategory: "Resilience" | "Relational" | "Philosophical" | "Competence" | "Self-Awareness" | "Regret" | "Achievement" | "Impact" | "Stewardship" | "Expression" | "Physicality" | "None";
+    insightSummary: string;
+    legacyLesson: string;
+    rawQuote: string;
+  };
+  impact_metadata?: {
+    emotional_intensity: number;
+    narrative_complexity: number;
+    duration_weight: number;
+  };
   linguisticCorrections?: { original: string; guess: string; meaning: string }[];
   peopleMentioned: string[];
 }
 
-export async function extractHighFidelityStories(transcriptContext: string, culturalContext?: string, relationalContext?: string, mainSubjectName?: string): Promise<HighFidelityStory[]> {
+export async function extractHighFidelityStories(transcriptContext: string, culturalContext?: string, relationalContext?: string, identityContext?: string): Promise<HighFidelityStory[]> {
   if (!transcriptContext.trim()) return [];
   
   const prompt = `
     You are an elite archivist and biographer for Legacy Nexus.
-    CRITICAL INSTRUCTION: The EXCLUSIVE MAIN SUBJECT of this biography is ${mainSubjectName || "the person being interviewed"}. 
-    You MUST evaluate all text strictly from the perspective of ${mainSubjectName || "the subject"}'s life. Do NOT write stories focusing on the actions of the interviewer or tangential speakers. If the interviewer mentions what they are doing, ignore it.
+    CRITICAL INSTRUCTION: The EXCLUSIVE MAIN SUBJECT of this biography is defined by: ${identityContext || "the person being interviewed"}. 
+    You MUST evaluate all text strictly from the perspective of the subject's life. Do NOT write stories focusing on the actions of the interviewer or tangential speakers. If the interviewer mentions what they are doing, ignore it.
+    ${identityContext ? `CRITICAL IDENTITY AWARENESS: ${identityContext}. You MUST write all generated story synopses, insight summaries, and legacy lessons respecting these pronouns and identity strictly. Do NOT default to "he" or "she" incorrectly.` : ''}
     Your task is to analyze the provided raw transcripts and extract distinct, high-fidelity narrative stories about the Main Subject.
     For each extracted story, output the following structured data:
     1. A short, compelling 'title'.
     2. The chronological 'era'. You MUST map the era strictly to one of the following exact strings: "Childhood", "Teens", "Twenties", "Thirties", "Forties", "Fifties+", or "Timeless" (Use "Timeless" for generic life advice, recipes, philosophical beliefs, or non-chronological skills).
     3. A concise 'synopsis' detailing the specific memory.
     4. Exactly 6 'psychometrics'. You MUST output an array containing exactly these 6 labels representing the RIASEC model: "Realistic", "Investigative", "Artistic", "Social", "Enterprising", and "Conventional". Evaluate each between 0 and 100 based on how intensely the theme applies to the story (0 if not applicable).
-    5. A completeness 'rubric' containing 4 booleans tracking if the story explicitly contains:
+       - TWO-TIER WEIGHTING SYSTEM: You MUST aggressively weight the intensity of the RIASEC dimensions based on the 'primaryCategory' extraction you just mapped:
+         > If Relational or Resilience -> heavily weight 'Social'.
+         > If Achievement or Impact -> heavily weight 'Enterprising'.
+         > If Stewardship -> heavily weight 'Conventional'.
+         > If Expression or Self-Awareness -> heavily weight 'Artistic'.
+         > If Philosophical -> heavily weight 'Investigative'.
+         > If Physicality -> heavily weight 'Realistic'.
+         > If Competence -> weight Realistic, Investigative, or Conventional depending on the task type (hand-skill vs theory vs records).
+    5. A completeness 'rubric' containing 3 booleans tracking if the story explicitly contains:
        - 'context': Does it establish the setting and background?
        - 'conflict': Is there a clear challenge, pivot, or escalation?
        - 'resolution': Is the outcome explained?
-       - 'extraction': Did the narrator explicitly state the moral, life lesson, or specific takeaway?
-    6. If the story has high conflict but 'extraction' is false, generate a 'gapPrompt' (a string prompting the user empathically to explain the moral of the story). Otherwise, provide null.
+    6. An 'extraction' object analyzing the lesson or moral using a 0-3 Depth Scale. Use the following Step-by-Step Identification Procedure:
+       - Locate the Reflection: Ignore the "Action" of the story. Focus only on the narrator's "Post-Event Commentary."
+       - Apply the Elimination Filter to assign a 'primaryCategory' and a distinct 'secondaryCategory'. MUST strictly be one of these exact strings: "Resilience", "Relational", "Philosophical", "Competence", "Self-Awareness", "Regret", "Achievement", "Impact", "Stewardship", "Expression", "Physicality", or "None" (if level 0).
+         > If getting back up/endurance -> Resilience.
+         > If human nature/person/boundaries -> Relational.
+         > If global truths/worldview -> Philosophical.
+         > If work/skills/how things work -> Competence.
+         > If their own flaws/traits/ego -> Self-Awareness.
+         > If painful mistakes/lost time/warnings -> Regret.
+         > If winning, pride, or crossing a finish line -> Achievement.
+         > If influence, leadership, action, or managing capital -> Impact.
+         > If honoring traditions, preservation, or keeping systems alive -> Stewardship.
+         > If unique style, beauty, creativity, or unconventional thinking -> Expression.
+         > If working with hands, nature, tools, or physical labor -> Physicality.
+       - Assign 'depthLevel': an integer from 0 to 3. If absent = 0. (Level 1: literal lesson. Level 2: Internalized/emotional growth. Level 3: Transcendental/Universal wisdom). 
+       - 'present': boolean (true if level > 0).
+       - 'insightSummary': A concise summary explaining the narrator's personal subjective realization.
+       - 'legacyLesson': The Transferable Wisdom. Convert the narrator's specific experience into a generalized universal truth.
+       - 'rawQuote': An exact, verbatim quote from the transcript demonstrating this extraction (or an empty string if none exists).
     7. LINGUISTIC CORRECTIONS: The narrator's cultural heritage/language background is: ${culturalContext || "Unknown"}. If the English transcript contains phonetically misspelled foreign words (e.g., Cantonese or Mandarin words rendered incorrectly into broken English by the audio transcriber), use your linguistic knowledge to intelligently deduce the intended word. Add each correction to the 'linguisticCorrections' array.
-    8. Extract any unique names of people explicitly mentioned in the story into the 'peopleMentioned' string array.
+    8. Calculate the 'impact_metadata' containing three core properties that assign gravitational weight to this specific story in the database:
+       - 'emotional_intensity' (1-5 scale): Score Intensity 1-2 (Snapshot): Casual mentions, low emotional stakes, routine events. Score 3-4 (Pivot): Significant life changes, clear conflict, emotional vulnerability, lessons learned. Score 5 (Core): Life-defining moments, extreme hardship/success, fundamental shifts in identity.
+       - 'narrative_complexity' (1-5 scale): How intricate is the sequence of events and decision making?
+       - 'duration_weight' (1.0 to 2.0 scale): Evaluate the raw verbosity and detail of this specific event in the transcript. 1.0 for brief mentions, 1.5 for dedicated paragraphs, 2.0 for exhaustive, multi-paragraph sagas.
+    9. Extract any unique names of people explicitly mentioned in the story into the 'peopleMentioned' string array.
     ${relationalContext ? `CRITICAL RELATIONAL CONTEXT: Normalize and refer to individuals using the following Identity Map when generating synopses and labels: ${relationalContext}` : ''}
 
     Extract 1 to 3 highly granular, profoundly distinct thematic events from this specific chunk of text. Do NOT lazily merge multiple life events into a single generalized card. Demand granularity. Do not hallucinate events that are not explicitly in the text.
@@ -401,12 +473,32 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
                 properties: {
                   context: { type: Type.BOOLEAN },
                   conflict: { type: Type.BOOLEAN },
-                  resolution: { type: Type.BOOLEAN },
-                  extraction: { type: Type.BOOLEAN }
+                  resolution: { type: Type.BOOLEAN }
                 },
-                required: ["context", "conflict", "resolution", "extraction"]
+                required: ["context", "conflict", "resolution"]
               },
-              gapPrompt: { type: Type.STRING, nullable: true },
+              extraction: {
+                type: Type.OBJECT,
+                properties: {
+                  present: { type: Type.BOOLEAN },
+                  depthLevel: { type: Type.INTEGER },
+                  primaryCategory: { type: Type.STRING },
+                  secondaryCategory: { type: Type.STRING },
+                  insightSummary: { type: Type.STRING },
+                  legacyLesson: { type: Type.STRING },
+                  rawQuote: { type: Type.STRING }
+                },
+                required: ["present", "depthLevel", "primaryCategory", "secondaryCategory", "insightSummary", "legacyLesson", "rawQuote"]
+              },
+              impact_metadata: {
+                type: Type.OBJECT,
+                properties: {
+                  emotional_intensity: { type: Type.INTEGER },
+                  narrative_complexity: { type: Type.INTEGER },
+                  duration_weight: { type: Type.NUMBER }
+                },
+                required: ["emotional_intensity", "narrative_complexity", "duration_weight"]
+              },
               linguisticCorrections: {
                 type: Type.ARRAY,
                 items: {
@@ -472,7 +564,10 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
     5. Ensure the 'peopleMentioned' array is an aggregate unique list of names involved in the merged story.
     ${relationalContext ? `CRITICAL RELATIONAL CONTEXT: Normalize and rewrite mentions in the 'synopsis' and 'title' to strictly follow this Identity Map, effectively replacing invalid aliases with canonical names: ${relationalContext}` : ''}
     
-    Return the FULL, ENTIRE aggregated JSON array of all stories (updated existing ones + unmodified existing ones + newly appended ones).
+    CRITICAL OUTPUT INSTRUCTION: 
+    Return ONLY a JSON array containing the specific stories that were UPDATED (merged) AND the ENTIRELY NEW stories. 
+    DO NOT output any existing stories from the master timeline that were untouched or unmodified by this new data.
+    If you modified an existing story, you MUST preserve its exact existing 'id'. If you created a new story, generate a new unique 'id' string (e.g. "new-uuid-123").
 
     --- EXISTING JSON ARRAY (MASTER TIMELINE) ---
     ${JSON.stringify(cachedStories)}
@@ -545,7 +640,19 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
       let raw = response.text;
       if (typeof raw === "function") raw = (raw as any)();
       raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
-      return JSON.parse(raw) as HighFidelityStory[];
+      const deltaStories = JSON.parse(raw) as HighFidelityStory[];
+      
+      // Server-side merge of deltas to prevent loss of unmodified stories
+      const updatedCache = [...cachedStories];
+      for (const delta of deltaStories) {
+          const existingIdx = updatedCache.findIndex(s => s.id === delta.id);
+          if (existingIdx !== -1) {
+              updatedCache[existingIdx] = delta;
+          } else {
+              updatedCache.push(delta);
+          }
+      }
+      return updatedCache;
     }
   } catch (error) {
     console.error("Failed to update incrementally:", error);
@@ -709,4 +816,93 @@ export async function reduceDashboardOverview(currentOverview: DashboardOverview
   }
   
   return currentOverview || { synopsis: "", wisdom: [], questions: [] };
+}
+
+export async function generateDriftInsight(
+  eraA: string,
+  archetypeA: string,
+  eraB: string,
+  archetypeB: string,
+  storyContextA: string,
+  storyContextB: string
+): Promise<string> {
+  const prompt = `
+    You are an expert, empathetic biographer analyzing the temporal evolution of a person's life across different eras.
+    We are charting a "River" of their psychological focus, measuring transitions using the RIASEC framework.
+
+    The user experienced a significant "Drift" or pivot:
+    - During their ${eraA}, their dominant mode of operating was: ${archetypeA}
+    - During their ${eraB}, their dominant mode of operating shifted precisely to: ${archetypeB}
+
+    Here are summaries of the core experiences from their ${eraA}:
+    ${storyContextA || "(No major documented core memories for this era.)"}
+
+    Here are summaries of the core experiences from their ${eraB}:
+    ${storyContextB || "(No major documented core memories for this era.)"}
+
+    Using fluid, navigational metaphors ("streams", "currents", "tributaries", "anchors", "flows"), write a SINGLE, concise paragraph explaining this shift.
+    Do NOT just list what happened. Explain WHY the transition occurred based on the provided story context.
+    Keep it profound, highly empathetic, and direct. Use the second person ("You"). Maximum 4 sentences.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+    });
+    return response.text || "Your current shifted seamlessly into this new era, driven by personal evolution.";
+  } catch (err: any) {
+    console.error("Failed to generate drift insight:", err);
+    return "A shift in your life trajectory naturally evolved during this time.";
+  }
+}
+
+export async function generateLegacyDeepDive(
+  dominantTrait: string,
+  flaw: string,
+  flawScore: number,
+  exampleStoryTitle: string
+): Promise<{ title: string; analysis: string; prompt: string }> {
+  const prompt = `
+    You are the "Architect Philosopher" for Legacy Nexus. You are evaluating a user's life archive.
+    You have detected a structural friction pattern in their life story. 
+    
+    Data:
+    - Their dominant personality trait across all stories is: ${dominantTrait}
+    - However, their ${flaw} (either "Extraction/Lessons Learned" or "Conflict Resolution") rate is dangerously low: only ${Math.round(flawScore * 100)}%.
+    - An example defining story of theirs is titled: "${exampleStoryTitle}".
+
+    Your task is to write a deeply empathetic but sharp "Cross-Metric Insight".
+    You must output JSON with exactly three fields:
+    1. "title": A paradoxical title (e.g., "The Paradox of the Titan", "The Unresolved Empath").
+    2. "analysis": A 2-3 sentence observation pointing out the friction between their massive ${dominantTrait} actions but their lack of ${flaw}. Focus on the psychological tension.
+    3. "prompt": A gentle but profound question challenging them to reflect on the human cost or internal reality of "${exampleStoryTitle}" or their general approach to life.
+
+    Output strict JSON format.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0.7,
+      }
+    });
+
+    if (response.text) {
+      let raw = response.text;
+      if (typeof raw === "function") raw = (raw as any)();
+      raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
+      return JSON.parse(raw);
+    }
+  } catch (error) {
+    console.error("Failed to generate deep dive:", error);
+  }
+  return {
+     title: "The Architect's Synthesis",
+     analysis: "Your timeline reveals powerful actions but leaves many internal realizations unsaid.",
+     prompt: "Looking back at your greatest achievements, what did they cost you internally?"
+  };
 }

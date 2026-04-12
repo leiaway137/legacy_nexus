@@ -1,135 +1,171 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Activity, Info, TrendingUp, Sparkles, Target, Compass, Edit3, MessageSquare } from "lucide-react";
-import { motion } from "framer-motion";
+import { ArrowLeft, ArrowRight, Activity, Info, TrendingUp, Sparkles, Target, Compass, Edit3, MessageSquare, Star, ChevronLeft, ChevronRight, XCircle } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
-import { fetchHighFidelityStories } from "@/lib/firebase/db";
+import { fetchHighFidelityStories, fetchLegacyInsights } from "@/lib/firebase/db";
 import { HighFidelityStory } from "@/lib/rag";
+import { computeCentroidMath, RECOGNIZED_ERAS, LABELS } from "@/lib/math";
+
+// SVG Geometry for Hexagon
+const size = 300;
+const center = size / 2;
+const maxRadius = 100;
+const angles = LABELS.map((_, i) => (Math.PI * 2 * i) / LABELS.length - Math.PI / 2);
+const webLevels = [0.2, 0.4, 0.6, 0.8, 1];
+const getPoint = (angle: number, length: number) => ({
+  x: center + Math.cos(angle) * length,
+  y: center + Math.sin(angle) * length
+});
 
 export default function ProgressPage() {
   const { user, loading } = useAuth();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollInterval = useRef<NodeJS.Timeout | null>(null);
   
-  const defaultCoverage = [
-    { era: "Childhood (0-12)", key: "Childhood", mapped: 0 },
-    { era: "Teens (13-19)", key: "Teens", mapped: 0 },
-    { era: "Twenties", key: "Twenties", mapped: 0 },
-    { era: "Thirties", key: "Thirties", mapped: 0 },
-    { era: "Forties", key: "Forties", mapped: 0 },
-    { era: "Fifties+", key: "Fifties+", mapped: 0 },
-  ];
-
-  const defaultRiasec = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1]; // Small base values so graph isn't invisible
-
-  const [lifeCoverage, setLifeCoverage] = useState(defaultCoverage);
-  const [riasecValues, setRiasecValues] = useState(defaultRiasec);
-  const [isInitializing, setIsInitializing] = useState(true);
-
-  // SVG Geometry for Hexagon
-  const size = 300;
-  const center = size / 2;
-  const maxRadius = 100;
-
-  // Pointy-topped hexagon angles mapping to ["Realistic", "Investigative", "Artistic", "Social", "Enterprising", "Conventional"]
-  // R: Top (-90 deg), I: Top-Right (-30 deg), A: Bottom-Right (30 deg), S: Bottom (90 deg), E: Bottom-Left (150 deg), C: Top-Left (210 deg).
-  const angles = [-Math.PI/2, -Math.PI/6, Math.PI/6, Math.PI/2, 5*Math.PI/6, 7*Math.PI/6];
-  const labels = ["Realistic", "Investigative", "Artistic", "Social", "Enterprising", "Conventional"];
-
-  // Helper to calculate coordinates
-  const getPoint = (angle: number, radius: number) => {
-    return {
-      x: center + radius * Math.cos(angle),
-      y: center + radius * Math.sin(angle)
-    };
+  const startScroll = (dir: 'left' | 'right') => {
+    if (scrollInterval.current) clearInterval(scrollInterval.current);
+    scrollInterval.current = setInterval(() => {
+       if (scrollRef.current) {
+          scrollRef.current.scrollBy({ left: dir === 'left' ? -5 : 5, behavior: 'auto' });
+       }
+    }, 16);
   };
 
-  const dataPoints = riasecValues.map((val, i) => getPoint(angles[i], val * maxRadius));
-  const polygonPoints = dataPoints.map(p => `${p.x},${p.y}`).join(" ");
+  const stopScroll = () => {
+    if (scrollInterval.current) {
+       clearInterval(scrollInterval.current);
+       scrollInterval.current = null;
+    }
+  };
+  
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [storiesSet, setStoriesSet] = useState<HighFidelityStory[]>([]);
+  const [precompiledInsights, setPrecompiledInsights] = useState<any>(null);
 
-  // Background Web Points
-  const webLevels = [0.2, 0.4, 0.6, 0.8, 1.0];
+  const [lifeCoverage, setLifeCoverage] = useState([
+    { era: "Childhood (0-12)", key: "Childhood", mapped: 0, count: 0 },
+    { era: "Teens (13-19)", key: "Teens", mapped: 0, count: 0 },
+    { era: "Twenties", key: "Twenties", mapped: 0, count: 0 },
+    { era: "Thirties", key: "Thirties", mapped: 0, count: 0 },
+    { era: "Forties", key: "Forties", mapped: 0, count: 0 },
+    { era: "Fifties+", key: "Fifties+", mapped: 0, count: 0 },
+  ]);
+
+  // Hexagon Dynamics
+  const [activeEraIdx, setActiveEraIdx] = useState<number>(0);
+  const [polygonPoints, setPolygonPoints] = useState<string>("");
+  const [dataPoints, setDataPoints] = useState<{x:number, y:number}[]>([]);
+  const [lowestCategory, setLowestCategory] = useState("Realistic");
+
+  // Identities
+  const [activeArchetype, setActiveArchetype] = useState<any>(null);
+  const [driftInsight, setDriftInsight] = useState<string | null>(null);
+  const [isStudyOpen, setIsStudyOpen] = useState(false);
+
+  const deepDive = precompiledInsights?.deepDive;
 
   useEffect(() => {
     async function loadAnalytics() {
       if (!user) return;
       try {
-        const stories = await fetchHighFidelityStories(user.uid);
-        if (!stories || stories.length === 0) {
-           setIsInitializing(false);
-           return;
-        }
+        const [stories, insights] = await Promise.all([
+           fetchHighFidelityStories(user.uid),
+           fetchLegacyInsights(user.uid)
+        ]);
+        
+        setStoriesSet(stories);
+        setPrecompiledInsights(insights);
 
-        // 1. Aggregate Life Coverage DENSITIES
-        const coverageMap = new Map<string, number>();
+        // Map Module 1 Coverage
+        const newCoverage = [
+          { era: "Childhood (0-12)", key: "Childhood", mapped: 0, count: 0 },
+          { era: "Teens (13-19)", key: "Teens", mapped: 0, count: 0 },
+          { era: "Twenties", key: "Twenties", mapped: 0, count: 0 },
+          { era: "Thirties", key: "Thirties", mapped: 0, count: 0 },
+          { era: "Forties", key: "Forties", mapped: 0, count: 0 },
+          { era: "Fifties+", key: "Fifties+", mapped: 0, count: 0 },
+        ];
+        
+        let totalCount = 0;
         stories.forEach(s => {
-           const k = s.era;
-           coverageMap.set(k, (coverageMap.get(k) || 0) + 1);
+           if (s.era !== "Timeless") {
+             const track = newCoverage.find(c => c.key === s.era || c.era.startsWith(s.era));
+             if (track) { track.count += 1; totalCount += 1; }
+           }
         });
-
-        const newCoverage = defaultCoverage.map(c => {
-           const count = coverageMap.get(c.key) || 0;
-           // Roughly map 'count' to percentage completion (e.g. 1 story = 35%, 2 = 70%, 3+ = 100%)
-           const pct = Math.min(count * 35, 100);
-           return { ...c, mapped: pct };
-        });
+        if (totalCount > 0) {
+           newCoverage.forEach(c => { c.mapped = Math.round((c.count / totalCount) * 100); });
+        }
         setLifeCoverage(newCoverage);
 
-        // 2. Aggregate RIASEC Averaged Values
-        // Prompt dictates values between 0 and 100.
-        const riasecTotals: Record<string, number> = { "Realistic": 0, "Investigative": 0, "Artistic": 0, "Social": 0, "Enterprising": 0, "Conventional": 0 };
-        stories.forEach(s => {
-           s.psychometrics?.forEach(metric => {
-              if (riasecTotals[metric.label] !== undefined) {
-                 riasecTotals[metric.label] += metric.val;
-              }
-           });
-        });
+        // Compute Base Centroid SVG Points (All Time)
+        const globalData = computeCentroidMath(RECOGNIZED_ERAS[0], stories);
+        const dPts = globalData.numericalArray.map((val, idx) => getPoint(angles[idx], val * maxRadius));
+        setPolygonPoints(dPts.map(p => `${p.x},${p.y}`).join(" "));
+        setDataPoints(dPts);
+        setLowestCategory(globalData.lowestCat);
 
-        const numStories = stories.length;
-        const newRiasec = labels.map(label => {
-           const avg = (riasecTotals[label] || 0) / numStories;
-           // Map to a 0.1 to 1.0 scale (0.1 base so graph doesn't vanish entirely)
-           return Math.max(0.1, avg / 100);
-        });
-        
-        setRiasecValues(newRiasec);
+        // Map Global Identity from Compiled Insights if available
+        if (insights && insights.allTime) {
+           setActiveArchetype(insights.allTime);
+        } else {
+           setActiveArchetype(globalData.archetype); // fallback without context
+        }
+
       } catch(e) {
-        console.error("Failed to map progress analytics", e);
+        console.error("Initiation error:", e);
       } finally {
         setIsInitializing(false);
       }
     }
-
     loadAnalytics();
   }, [user]);
+
+  async function handleEraClick(idx: number) {
+     if (idx === activeEraIdx) return;
+     setActiveEraIdx(idx);
+     const eraObj = RECOGNIZED_ERAS[idx];
+     
+     // Morph the Hexagon Math visually
+     const cData = computeCentroidMath(eraObj, storiesSet);
+     const dPts = cData.numericalArray.map((val, idx) => getPoint(angles[idx], val * maxRadius));
+     setPolygonPoints(dPts.map(p => `${p.x},${p.y}`).join(" "));
+     setDataPoints(dPts);
+     
+     // Map texts
+     if (idx === 0) {
+        setDriftInsight(null);
+        setActiveArchetype(precompiledInsights?.allTime || cData.archetype);
+     } else {
+        const compiledEra = precompiledInsights?.eras?.[eraObj.key];
+        if (compiledEra) {
+           setActiveArchetype(compiledEra);
+           setDriftInsight(compiledEra.driftInsight);
+        } else {
+           setActiveArchetype(cData.archetype);
+           setDriftInsight("The Oracle has not generated an insight for this explicit era transition yet.");
+        }
+     }
+  }
 
   if (loading || isInitializing) {
     return <div className="min-h-screen flex items-center justify-center bg-[#F6F5F0] dark:bg-zinc-950"><Sparkles className="animate-spin text-blue-500" /></div>;
   }
-
-  if (!user) {
-    return <div className="min-h-screen bg-[#F6F5F0] dark:bg-zinc-950 px-4"><LoginModule /></div>;
-  }
-
-  // Determine lowest categories for dynamic gamification
-  const lowestRIASECIndex = riasecValues.indexOf(Math.min(...riasecValues));
-  const lowestCategory = labels[lowestRIASECIndex];
+  if (!user) return <div className="min-h-screen bg-[#F6F5F0] dark:bg-zinc-950 px-4"><LoginModule /></div>;
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-[#0a0a0a] text-zinc-900 dark:text-zinc-100 font-sans p-6 md:p-12 overflow-y-auto">
       <div className="max-w-5xl mx-auto space-y-8">
         
-        {/* Navigation */}
-        <Link 
-          href="/" 
-          className="inline-flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
-        >
+        <Link href="/" className="inline-flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">
           <ArrowLeft size={16} /> Back to Dashboard
         </Link>
 
-        {/* Header Block - Monumental Styling */}
+        {/* Header Block */}
         <div className="border-b border-zinc-200 dark:border-zinc-800 pb-8 flex flex-col gap-3">
           <div className="inline-flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-widest text-xs">
             <Activity size={14} /> Legacy Progress
@@ -162,7 +198,7 @@ export default function ProgressPage() {
                 <div key={idx} className="relative">
                   <div className="flex justify-between items-end mb-1.5">
                     <span className="text-sm font-bold text-zinc-700 dark:text-zinc-300">{era.era}</span>
-                    <span className="text-xs font-medium text-zinc-500">{era.mapped}%</span>
+                    <span className="text-xs font-medium text-zinc-500">{era.count} {era.count === 1 ? 'story' : 'stories'} ({era.mapped}%)</span>
                   </div>
                   <div className="w-full h-3 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
                     <motion.div 
@@ -172,7 +208,6 @@ export default function ProgressPage() {
                       className={`h-full rounded-full ${era.mapped > 75 ? 'bg-indigo-500' : era.mapped > 30 ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-700'}`}
                     />
                   </div>
-                  {/* Gamified prompt for low coverage */}
                   {era.mapped < 30 && (
                     <p className="text-[11px] text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1 font-medium">
                       <Sparkles size={10} /> A narrative gap waiting to be filled in your {era.era.split(' ')[0]}.
@@ -185,12 +220,73 @@ export default function ProgressPage() {
             <div className="mt-8 p-4 bg-indigo-50 dark:bg-indigo-950/30 rounded-2xl border border-indigo-100 dark:border-indigo-900/50">
                <h3 className="text-sm font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-2 mb-1"><Edit3 size={14} /> Architect Prompt</h3>
                <p className="text-xs text-indigo-700 dark:text-indigo-400/80 leading-relaxed">
-                 You have excellent coverage of certain life periods, but others remain largely undocumented in the High-Fidelity cache. Consider uploading stories or journals to map those missing timelines!
+                 You have excellent coverage of certain life periods, but others remain largely undocumented in the High-Fidelity cache. 
+                 <Link href="/stories" className="font-bold underline underline-offset-2 ml-1 hover:text-indigo-500">Consider uploading stories to map those timelines!</Link>
                </p>
             </div>
+            
+            
+            {deepDive ? (
+              <div className={`w-full mt-4 p-5 rounded-3xl border z-10 relative transition-all duration-700 ${isStudyOpen ? 'bg-zinc-900 border-zinc-700 shadow-2xl shadow-zinc-900/50' : 'bg-zinc-50 dark:bg-zinc-800/40 border-zinc-200 dark:border-zinc-700/50 cursor-pointer overflow-hidden group'}`}>
+                 {!isStudyOpen ? (
+                    <div onClick={() => setIsStudyOpen(true)} className="flex flex-col items-center justify-center text-center py-4">
+                       <div className="w-12 h-12 bg-zinc-200 dark:bg-zinc-700 rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                          <Sparkles size={20} className="text-zinc-500 dark:text-zinc-400" />
+                       </div>
+                       <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-widest mb-2">The Architect's Study</h3>
+                       <p className="text-xs text-zinc-500 max-w-xs mx-auto">
+                          The AI has synthesized a cross-metric paradox examining the friction between your actions and reflections. 
+                       </p>
+                       <button className="mt-4 px-4 py-1.5 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-xs font-bold rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                          Unseal Observation
+                       </button>
+                    </div>
+                 ) : (
+                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+                       <div className="flex items-center justify-between mb-4 border-b border-zinc-700 pb-3">
+                          <div className="flex items-center gap-2 text-zinc-400 text-[10px] uppercase tracking-widest font-bold">
+                             <Target size={12} /> Architect Observation
+                          </div>
+                          <button onClick={() => setIsStudyOpen(false)} className="text-zinc-500 hover:text-white transition-colors">
+                             <XCircle size={16} />
+                          </button>
+                       </div>
+                       
+                       <h3 className="text-lg font-bold text-white mb-3">
+                          {deepDive.title}
+                       </h3>
+                       <p className="text-sm text-zinc-300 leading-relaxed mb-5 italic border-l-2 border-zinc-600 pl-3">
+                          "{deepDive.analysis}"
+                       </p>
+                       
+                       <div className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-700/50">
+                          <p className="text-xs font-medium text-emerald-400 mb-2 flex items-center gap-1.5">
+                             <MessageSquare size={12} /> The Challenge
+                          </p>
+                          <p className="text-sm text-zinc-200 leading-relaxed font-serif">
+                             "{deepDive.prompt}"
+                          </p>
+                       </div>
+
+                       <div className="mt-4 flex flex-wrap gap-2 text-[10px] text-zinc-500 font-medium tracking-wider uppercase">
+                          <span className="bg-zinc-800 px-2 py-1 rounded border border-zinc-700">Dominant: {deepDive.dominantTrait}</span>
+                          <span className="bg-zinc-800 px-2 py-1 rounded border border-zinc-700">Friction: Low {deepDive.flaw} Score</span>
+                       </div>
+                    </div>
+                 )}
+              </div>
+            ) : (
+              <div className="w-full mt-4 p-4 bg-emerald-50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-100 dark:border-emerald-900/50 z-10 relative">
+                 <h3 className="text-sm font-bold text-emerald-900 dark:text-emerald-400 flex items-center gap-2 mb-1"><MessageSquare size={14} /> Round Out Your Legacy</h3>
+                 <p className="text-xs text-emerald-700 dark:text-emerald-400/80 leading-relaxed">
+                   The AI notes your <span className="font-bold">{lowestCategory}</span> dimension is structurally your smallest mapped node overall. <br/><br/>
+                   Can you drop a story into the archive about a time you engaged heavily with the {lowestCategory} side of life? <Link href="/stories" className="font-bold hover:text-emerald-500 underline underline-offset-2">Go to Archive</Link>
+                 </p>
+              </div>
+            )}
           </div>
 
-          {/* Module 2: The RIASEC Hexagon */}
+          {/* Module 2: The Morphing Hexagon */}
           <div className="bg-white dark:bg-zinc-900 rounded-3xl p-8 border border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col items-center">
             
             <div className="w-full">
@@ -204,74 +300,52 @@ export default function ProgressPage() {
 
             <div className="relative w-full flex justify-center py-6 mt-4">
               <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="overflow-visible">
-                {/* Draw Background Web */}
                 {webLevels.map((level, idx) => {
                   const pts = angles.map(a => `${getPoint(a, level * maxRadius).x},${getPoint(a, level * maxRadius).y}`).join(" ");
                   return (
                     <polygon 
-                      key={idx} 
-                      points={pts} 
-                      fill="none" 
-                      stroke="currentColor" 
-                      className="text-zinc-200 dark:text-zinc-800" 
-                      strokeWidth={1} 
+                      key={idx} points={pts} fill="none" stroke="currentColor" 
+                      className="text-zinc-200 dark:text-zinc-800" strokeWidth={1} 
                     />
                   );
                 })}
                 
-                {/* Draw Axes connecting center to max edge */}
                 {angles.map((a, idx) => (
                   <line 
-                    key={idx} 
-                    x1={center} 
-                    y1={center} 
-                    x2={getPoint(a, maxRadius).x} 
-                    y2={getPoint(a, maxRadius).y} 
-                    stroke="currentColor" 
-                    className="text-zinc-200 dark:text-zinc-800" 
-                    strokeWidth={1}
+                    key={idx} x1={center} y1={center} x2={getPoint(a, maxRadius).x} y2={getPoint(a, maxRadius).y} 
+                    stroke="currentColor" className="text-zinc-200 dark:text-zinc-800" strokeWidth={1}
                   />
                 ))}
 
-                {/* The Data Polygon */}
                 <motion.polygon 
                   initial={{ points: angles.map(a => `${center},${center}`).join(" ") }}
                   animate={{ points: polygonPoints }}
-                  transition={{ duration: 1.5, ease: "easeOut" }}
-                  fill="rgba(16, 185, 129, 0.2)" /* Emerald */
-                  stroke="#10b981"
-                  strokeWidth={3}
-                  strokeLinejoin="round"
+                  transition={{ duration: 0.6, type: "spring", bounce: 0.25 }}
+                  fill="rgba(16, 185, 129, 0.2)"
+                  stroke="#10b981" strokeWidth={3} strokeLinejoin="round"
                 />
 
-                {/* Data Points on vertices */}
                 {dataPoints.map((p, idx) => (
                   <motion.circle 
                     key={idx}
                     initial={{ cx: center, cy: center }}
                     animate={{ cx: p.x, cy: p.y }}
-                    transition={{ duration: 1.5, ease: "easeOut" }}
-                    r={4}
+                    transition={{ duration: 0.6, type: "spring", bounce: 0.25 }}
+                    r={5}
                     className="fill-white dark:fill-zinc-900 stroke-emerald-500 stroke-[3px]"
+                    style={{ filter: "drop-shadow(0px 2px 4px rgba(16, 185, 129, 0.3))" }}
                   />
                 ))}
 
-                {/* Labels around the hexagon */}
-                {labels.map((label, idx) => {
+                {LABELS.map((label, idx) => {
                   const p = getPoint(angles[idx], maxRadius + 30);
-                  // Adjust label anchoring based on position
                   let anchor: "start" | "middle" | "end" = "middle";
                   if (p.x > center + 10) anchor = "start";
                   if (p.x < center - 10) anchor = "end";
-                  
                   return (
                     <text 
-                      key={label}
-                      x={p.x} 
-                      y={p.y} 
-                      textAnchor={anchor}
-                      alignmentBaseline="middle"
-                      className="text-[11px] font-bold fill-zinc-600 dark:fill-zinc-400 tracking-wider uppercase"
+                      key={label} x={p.x} y={p.y} textAnchor={anchor} alignmentBaseline="middle"
+                      className="text-[10px] font-bold fill-zinc-600 dark:fill-zinc-400 tracking-wider uppercase"
                     >
                       {label}
                     </text>
@@ -280,13 +354,106 @@ export default function ProgressPage() {
               </svg>
             </div>
 
-            <div className="w-full mt-4 p-4 bg-emerald-50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-100 dark:border-emerald-900/50">
-               <h3 className="text-sm font-bold text-emerald-900 dark:text-emerald-400 flex items-center gap-2 mb-1"><MessageSquare size={14} /> Round Out Your Legacy</h3>
-               <p className="text-xs text-emerald-700 dark:text-emerald-400/80 leading-relaxed">
-                 The AI notes your <span className="font-bold">{lowestCategory}</span> dimension is your smallest mapped node. <br/><br/>
-                 Can you drop a story into the archive about a time you engaged heavily with the {lowestCategory} side of life? Let's grow that point!
-               </p>
+            {/* Sub-Timeline Controls */}
+            <div className="w-full mt-4 flex items-center gap-1">
+              <button 
+                 onMouseEnter={() => startScroll('left')} 
+                 onMouseLeave={stopScroll}
+                 onMouseUp={stopScroll}
+                 className="p-2 rounded-full text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition-colors flex-shrink-0 cursor-pointer"
+              >
+                 <ChevronLeft size={20} />
+              </button>
+
+              <div 
+                ref={scrollRef}
+                className="flex-1 bg-zinc-50 dark:bg-zinc-800/50 p-2 rounded-2xl border border-zinc-200 dark:border-zinc-700/50 shadow-inner overflow-x-auto no-scrollbar flex flex-nowrap items-center gap-2 relative"
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+              >
+                 {RECOGNIZED_ERAS.map((era, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleEraClick(i)}
+                      className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold tracking-widest uppercase transition-all flex-shrink-0 ${activeEraIdx === i ? 'bg-indigo-600 text-white shadow-md' : 'text-zinc-500 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-700'}`}
+                    >
+                      {era.key}
+                    </button>
+                 ))}
+              </div>
+
+              <button 
+                 onMouseEnter={() => startScroll('right')} 
+                 onMouseLeave={stopScroll}
+                 onMouseUp={stopScroll}
+                 className="p-2 rounded-full text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition-colors flex-shrink-0 cursor-pointer"
+              >
+                 <ChevronRight size={20} />
+              </button>
             </div>
+
+            {/* Narrative Archetype Descriptions */}
+            {activeArchetype && (
+              <div className="w-full mt-6 bg-indigo-50 dark:bg-indigo-900/10 rounded-3xl p-6 border border-indigo-100 dark:border-indigo-800/30 shadow-md transition-all">
+                <div className="flex items-center gap-2 bg-indigo-100 dark:bg-indigo-800/30 px-3 py-1 rounded-full text-indigo-700 dark:text-indigo-300 text-[10px] font-bold uppercase tracking-widest w-max mb-4">
+                  <Star size={12} className={activeEraIdx === 0 ? "text-amber-500" : "text-indigo-500"} />
+                  {activeEraIdx === 0 ? "All-Time Legacy Identity" : `${RECOGNIZED_ERAS[activeEraIdx].key} Era Identity`}
+                </div>
+                
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.div
+                    key={`arch-block-${activeEraIdx}-${activeArchetype.title}`}
+                    initial={{ opacity: 0, y: -10 }} 
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10, transition: { duration: 0.2 } }}
+                    className="w-full"
+                  >
+                    <h2 className="text-2xl md:text-3xl font-black text-indigo-900 dark:text-indigo-100 mb-4 text-center md:text-left">
+                      {activeArchetype.title}
+                    </h2>
+
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                       <div className="p-3 bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700">
+                         <span className="block text-[10px] uppercase font-bold text-zinc-500 tracking-wider mb-1">Primary Flow</span>
+                         <span className="font-bold text-indigo-600 dark:text-indigo-400 text-lg">{activeArchetype.primaryRiasec}</span>
+                       </div>
+                       <div className="p-3 bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700">
+                         <span className="block text-[10px] uppercase font-bold text-zinc-500 tracking-wider mb-1">Secondary Flow</span>
+                         <span className="font-bold text-indigo-500/80 dark:text-indigo-300/80 text-lg">{activeArchetype.secondaryRiasec}</span>
+                       </div>
+                    </div>
+
+                    {activeEraIdx === 0 ? (
+                      <div className="min-h-[4rem]">
+                        <p className="text-zinc-700 dark:text-zinc-300 leading-relaxed font-medium">
+                           {activeArchetype.context ? `"${activeArchetype.context}"` : (
+                              <span>
+                                Please <Link href="/stories" className="text-indigo-600 dark:text-indigo-400 underline underline-offset-2 font-bold hover:text-indigo-500">run the Archive Compiler</Link> to generate your summary analysis.
+                              </span>
+                           )}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="min-h-[4rem] relative overflow-hidden">
+                        {driftInsight ? (
+                           <div className="mt-4 pt-4 border-t border-indigo-200 dark:border-indigo-800/50">
+                             <p className="text-sm text-indigo-900 dark:text-indigo-200 font-medium leading-relaxed italic border-l-2 border-indigo-400 pl-3">
+                               {driftInsight}
+                             </p>
+                           </div>
+                        ) : (
+                           <div className="mt-4 pt-4 border-t border-indigo-200 dark:border-indigo-800/50">
+                              <p className="text-sm text-indigo-900/60 dark:text-indigo-200/50 font-medium leading-relaxed italic border-l-2 border-indigo-400/50 pl-3">
+                                 The Oracle has not generated an insight for this explicitly. <Link href="/stories" className="underline underline-offset-2 hover:text-indigo-500 dark:hover:text-indigo-300">Run the Archivist</Link> to generate.
+                              </p>
+                           </div>
+                        )}
+                      </div>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+
+              </div>
+            )}
 
           </div>
         </div>
@@ -294,21 +461,8 @@ export default function ProgressPage() {
         <div className="bg-zinc-100 dark:bg-zinc-900/50 rounded-2xl p-4 flex items-start gap-4 text-sm text-zinc-500 mt-8">
           <Info size={20} className="text-zinc-400 flex-shrink-0 mt-0.5" />
           <p>
-            <strong>Live Analytics:</strong> These visualizations are mapped precisely to the mathematical tags outputted dynamically by the Archivist AI when you compile your transcripts!
+            <strong>Live Analytics:</strong> These visualizations are mapped precisely to the mathematical tags outputted dynamically by the Archivist AI when you compile your transcripts.
           </p>
-        </div>
-
-        {/* Link to Compiled Stories */}
-        <div className="flex justify-center pt-8 border-t border-zinc-200 dark:border-zinc-800 mt-8">
-          <Link href="/stories" className="group flex items-center justify-between gap-4 p-5 md:px-8 md:py-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-3xl w-full shadow-lg shadow-indigo-600/20 transition-all hover:-translate-y-1">
-             <div>
-               <h3 className="text-lg md:text-xl font-bold flex items-center gap-2">Deep Dive: High-Fidelity Stories</h3>
-               <p className="text-indigo-100 text-sm mt-1">Review the AI timeline breakdowns and run the Compiler.</p>
-             </div>
-             <div className="w-12 h-12 rounded-full border border-indigo-400/50 flex items-center justify-center group-hover:bg-white/10 transition-colors flex-shrink-0">
-               <ArrowRight size={24} />
-             </div>
-          </Link>
         </div>
 
       </div>

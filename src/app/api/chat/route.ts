@@ -13,7 +13,7 @@ export async function POST(req: Request) {
 
     // 1. Vectorize the User Question
     const questionVector = await generateTextEmbedding(question);
-    if (!questionVector || questionVector.length !== 3072) {
+    if (!questionVector || questionVector.length === 0) {
        throw new Error("Failed to generate embedding for the question.");
     }
 

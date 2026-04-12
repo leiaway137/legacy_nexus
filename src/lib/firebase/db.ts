@@ -1,4 +1,4 @@
-import { getFirestore, collection, addDoc, serverTimestamp, query, where, getDocs, doc, deleteDoc, orderBy, getDoc, setDoc } from "firebase/firestore";
+import { getFirestore, collection, addDoc, serverTimestamp, query, where, getDocs, doc, deleteDoc, orderBy, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { app } from "./client";
 import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview } from "@/lib/rag";
 
@@ -85,7 +85,9 @@ export interface NotebookSource {
   fileName: string;
   fileSize: number;
   textContent: string; // The extracted AI-readable string
+  parsedContent?: string; // The AI-structured conversational script format
   uploadedAt: any;
+  isSynced?: boolean; // Whether the RAG loop has already processed this source into HighFidelity stories
 }
 
 export async function uploadNotebookSource(userId: string, fileName: string, fileSize: number, textContent: string): Promise<NotebookSource | null> {
@@ -126,6 +128,24 @@ export async function deleteNotebookSource(documentId: string) {
     await deleteDoc(doc(db, "user_sources", documentId));
   } catch (error) {
     console.error("Failed to remove source document:", error);
+  }
+}
+
+export async function updateSourceSyncStatus(documentId: string, isSynced: boolean) {
+  try {
+    const docRef = doc(db, "user_sources", documentId);
+    await updateDoc(docRef, { isSynced });
+  } catch (error) {
+    console.error("Failed to update sync status:", error);
+  }
+}
+
+export async function updateNotebookSourceParsedContent(documentId: string, parsedContent: string) {
+  try {
+    const docRef = doc(db, "user_sources", documentId);
+    await updateDoc(docRef, { parsedContent });
+  } catch (error) {
+    console.error("Failed to update parsed content:", error);
   }
 }
 
@@ -202,7 +222,7 @@ export async function fetchChatHistory(userId: string): Promise<{role: string, t
 export interface Contact {
   id: string; // The firestore doc ID
   userId: string;
-  originalName: string; // Original name from transcript
+  originalName: string; // Original name from transcript (or import label)
   completeName: string; // Corrected/Full name dynamically concatenated
   firstName?: string;
   middleName?: string;
@@ -210,7 +230,9 @@ export interface Contact {
   relationship?: string; // Formal role/relationship to narrator
   aliases: string[]; // Alternate spellings
   email: string;
+  phone?: string; // Imported phone number
   linkedAccountId: string;
+  source?: 'story' | 'import' | 'merged'; // Data provenance
   updatedAt?: any;
 }
 
@@ -244,6 +266,17 @@ export async function saveContact(userId: string, contactData: Partial<Contact> 
   }
 }
 
+export async function deleteContact(contactId: string): Promise<boolean> {
+  try {
+    const docRef = doc(db, "legacy_contacts", contactId);
+    await deleteDoc(docRef);
+    return true;
+  } catch (err) {
+    console.error("Failed to delete contact:", err);
+    return false;
+  }
+}
+
 export interface PersistentDashboardState extends DashboardOverview {
   processedSourceIds: string[];
 }
@@ -268,4 +301,30 @@ export async function saveDashboardState(userId: string, state: PersistentDashbo
   } catch (err) {
     console.error("Failed to save dashboard state:", err);
   }
+}
+
+// ---- AI DRIFT INSIGHTS PERSISTENCE ----
+
+export async function saveLegacyInsights(userId: string, data: any): Promise<boolean> {
+  try {
+    const docRef = doc(db, "legacy_insights", userId);
+    await setDoc(docRef, { ...data, updatedAt: serverTimestamp() });
+    return true;
+  } catch (error) {
+    console.error("Failed to save legacy insights:", error);
+    return false;
+  }
+}
+
+export async function fetchLegacyInsights(userId: string): Promise<any | null> {
+  try {
+    const docRef = doc(db, "legacy_insights", userId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data();
+    }
+  } catch (error) {
+    console.error("Failed to fetch legacy insights:", error);
+  }
+  return null;
 }

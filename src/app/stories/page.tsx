@@ -7,8 +7,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { HighFidelityStory } from "@/lib/rag";
-import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile } from "@/lib/firebase/db";
-import { extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction } from "@/app/actions";
+import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights } from "@/lib/firebase/db";
+import { extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, generateLegacyIdentityAction, generateDriftInsightAction, generateLegacyDeepDiveAction } from "@/app/actions";
+import { computeCentroidMath, analyzeCrossMetricPattern, RECOGNIZED_ERAS } from "@/lib/math";
 
 const ERA_ORDER: Record<string, number> = {
   "Childhood": 1,
@@ -38,9 +39,16 @@ const MOCK_STORIES: HighFidelityStory[] = [
       context: true,
       conflict: true,
       resolution: true,
-      extraction: true,
     },
-    gapPrompt: null
+    extraction: {
+      present: true,
+      depthLevel: 2,
+      primaryCategory: "Impact",
+      secondaryCategory: "Resilience",
+      insightSummary: "User realized that building a business is about sweat equity, not just capital.",
+      legacyLesson: "Influence and longevity are built on endurance when resources fail.",
+      rawQuote: "Despite initial setbacks with capital, securing the historic downtown location proved to be the turning point."
+    }
   },
   {
     id: "2",
@@ -59,9 +67,16 @@ const MOCK_STORIES: HighFidelityStory[] = [
       context: true,
       conflict: true,
       resolution: true,
-      extraction: false,
     },
-    gapPrompt: "Albert, that story about the printing press failure is intense. But you haven't told me: what did that teach you about choosing business partners?"
+    extraction: {
+      present: false,
+      depthLevel: 0,
+      primaryCategory: "None",
+      secondaryCategory: "None",
+      insightSummary: "",
+      legacyLesson: "",
+      rawQuote: ""
+    }
   },
   {
     id: "3",
@@ -80,9 +95,16 @@ const MOCK_STORIES: HighFidelityStory[] = [
       context: true,
       conflict: false,
       resolution: true,
-      extraction: true,
     },
-    gapPrompt: null,
+    extraction: {
+      present: true,
+      depthLevel: 1,
+      primaryCategory: "Relational",
+      secondaryCategory: "Stewardship",
+      insightSummary: "A timeless connection to heritage through food.",
+      legacyLesson: "Traditional recipes carry the invisible weight of family history across generations.",
+      rawQuote: "My father taught me to mix ground pork with soy sauce and fermented fish."
+    },
     linguisticCorrections: [
       { original: "haam yuh", guess: "Haam Yu", meaning: "Salted Fish" },
       { original: "seen yuk", guess: "Siu Juk", meaning: "Roast Pork / Meat" }
@@ -135,24 +157,46 @@ export default function StoriesPage() {
      return <div className="min-h-screen bg-[#F6F5F0] dark:bg-zinc-950 px-4"><LoginModule /></div>;
   }
 
-  const handleAnalyzeVault = async () => {
+  const handleAnalyzeVault = async (forceFullScan: boolean = false) => {
     setIsAnalyzing(true);
     setHasScanned(false);
     try {
       // 1. Fetch all raw text from the user's uploaded sources
-      const sources = await fetchUserSources(user.uid);
+      let sources = await fetchUserSources(user.uid);
+      
       if (sources.length === 0) {
         alert("Your archive is currently empty! Please upload some life stories on the dashboard first, or interact with the AI interviewer.");
         setIsAnalyzing(false);
         return;
       }
 
-      // 2. Fetch profile for linguistic/cultural background
+      // 2. Incremental Sync Logic
+      let currentCache: HighFidelityStory[] = [];
+      if (!forceFullScan) {
+        const existingStories = await fetchHighFidelityStories(user.uid);
+        if (existingStories) currentCache = existingStories;
+        
+        // Filter out already synced sources
+        sources = sources.filter(s => !s.isSynced);
+        
+        if (sources.length === 0) {
+          alert("All your documents are already synced! If you want to completely re-evaluate the archive, use the 'Force Full Re-Scan' option.");
+          setIsAnalyzing(false);
+          setHasScanned(true);
+          return;
+        }
+      }
+
+      // 3. Fetch profile for linguistic/identity background
       const profile = await fetchUserProfile(user.uid);
       const linguisticContext = [profile?.culturalHeritage, profile?.primaryLanguage, profile?.secondaryLanguages].filter(Boolean).join(" | ");
+      const identityContext = [
+        profile?.firstName && `Subject Name: ${profile?.firstName} ${profile?.lastName || ''}`,
+        profile?.pronouns && `Subject Pronouns: ${profile?.pronouns}`,
+        profile?.genderIdentity && `Subject Gender: ${profile?.genderIdentity}`
+      ].filter(Boolean).join(" | ");
 
-      // 3. Map-Reduce Pipeline Loop
-      let currentCache: HighFidelityStory[] = [];
+      // 4. Map-Reduce Pipeline Loop
       // Aggressive chunking (5000 chars = ~1000 words). This guarantees Gemini returns extremely quickly (<10sec), bypassing any local VPN/ISP idle socket timeouts that cause 'fetch failed'.
       const CHUNK_SIZE = 5000; 
       const AVG_SECONDS_PER_CHUNK = 8;
@@ -168,6 +212,7 @@ export default function StoriesPage() {
         const s = sources[i];
         const text = s.textContent || "";
         const numChunks = Math.ceil(text.length / CHUNK_SIZE);
+        let documentMappedStories: HighFidelityStory[] = [];
         
         for (let c = 0; c < numChunks; c++) {
            const estimatedSeconds = (totalChunks - chunksProcessed) * AVG_SECONDS_PER_CHUNK;
@@ -184,19 +229,85 @@ export default function StoriesPage() {
            const sourceContext = `[Source: ${s.fileName}]\n${chunkText}`;
            
            try {
-              const mappedStories = await extractHighFidelityStoriesAction(sourceContext, linguisticContext);
+              const mappedStories = await extractHighFidelityStoriesAction(sourceContext, linguisticContext, undefined, identityContext);
               if (mappedStories && mappedStories.length > 0) {
-                 setMappingProgress(`Bridging timeline for: ${s.fileName || `Document ${i + 1}`}...`);
-                 currentCache = await reduceHighFidelityStoriesAction(currentCache, mappedStories, linguisticContext);
+                 documentMappedStories.push(...mappedStories);
               }
            } catch (mapErr: any) {
               console.error("Map-Reduce failed on specific chunk:", s.id, mapErr);
            }
            chunksProcessed++;
         }
+        
+        if (documentMappedStories.length > 0) {
+           setMappingProgress(`Bridging timeline for: ${s.fileName || `Document ${i + 1}`}...`);
+           currentCache = await reduceHighFidelityStoriesAction(currentCache, documentMappedStories, linguisticContext);
+        }
+        
+        try {
+          // Incrementally save the updated cache to Firebase FIRST, then mark as synced
+          // This prevents catastrophic data loss if the user refreshes before the global save at the very end
+          await saveHighFidelityStories(user.uid, currentCache);
+          await updateSourceSyncStatus(s.id, true);
+        } catch (e) {
+          console.error("Failed to update sync tracking for source:", s.id);
+        }
       }
       
       if (currentCache.length > 0) {
+        setProgressPercent(95);
+        setEta("Synthesizing Legacy Insights...");
+        setMappingProgress("Architecting universal timeline narratives and psychological drift. This may take 30-45 seconds...");
+        
+        // 1. Generate Global Stats
+        const globalData = computeCentroidMath(RECOGNIZED_ERAS[0], currentCache);
+        const globalCtx = await generateLegacyIdentityAction(globalData.archetype.primaryRiasec, globalData.archetype.secondaryRiasec, globalData.archetype.extraction, globalData.archetype.title);
+        globalData.archetype.context = globalCtx;
+
+        const insightsPackage: any = {
+           allTime: globalData.archetype,
+           eras: {}
+        };
+
+        // 2. Generate Drift for Populated Eras
+        for (let i = 1; i < RECOGNIZED_ERAS.length; i++) {
+           const eraObj = RECOGNIZED_ERAS[i];
+           const eraStories = currentCache.filter(s => s.era === eraObj.key || s.era === eraObj.label);
+           if (eraStories.length > 0) {
+              const cData = computeCentroidMath(eraObj, currentCache);
+              const strGlobal = globalData.archetype.rawStories.slice(0, 10).map((s:any)=>s.title).join(", ");
+              const strEra = cData.archetype.rawStories.slice(0, 10).map((s:any)=>s.title+": "+s.synopsis).join("\n").slice(0, 2000);
+              
+              const driftTxt = await generateDriftInsightAction(
+                 "All-Time Timeline", globalData.archetype.title,
+                 eraObj.key, cData.archetype.title,
+                 strGlobal || "(No macro timeline)",
+                 strEra || "(No stories from this era)"
+              );
+              insightsPackage.eras[eraObj.key] = {
+                 ...cData.archetype,
+                 driftInsight: driftTxt
+              };
+           }
+        }
+
+        // 3. Generate Cross-Metric Deep Dive (Friction & Blind Spots)
+        const crossPattern = analyzeCrossMetricPattern(currentCache);
+        if (crossPattern) {
+           const deepDiveData = await generateLegacyDeepDiveAction(
+              crossPattern.dominantTrait,
+              crossPattern.flaw,
+              crossPattern.flawScore,
+              crossPattern.exampleStoryTitle
+           );
+           insightsPackage.deepDive = {
+              ...crossPattern,
+              ...deepDiveData
+           };
+        }
+        
+        await saveLegacyInsights(user.uid, insightsPackage);
+
         setProgressPercent(100);
         setEta("Almost done!");
         setMappingProgress("Finalizing chronological sorting and preserving to Firebase...");
@@ -239,21 +350,85 @@ export default function StoriesPage() {
               Compiled Stories
             </h1>
             <p className="text-lg text-zinc-500 dark:text-zinc-400">
-              This timeline visualizes your raw transcripts synthesized into categorized narrative moments. Each point evaluates your narrative completeness.
+              This timeline visualizes your raw transcripts synthesized into categorized narrative moments. Syncing will only scan new documents.
             </p>
           </div>
 
-          <button 
-            onClick={handleAnalyzeVault}
-            disabled={isAnalyzing}
-            className="flex-shrink-0 flex items-center justify-center gap-2 px-6 py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-2xl shadow-xl shadow-indigo-600/20 transition-all hover:-translate-y-1"
-          >
-            {isAnalyzing ? (
-              <><Loader2 size={20} className="animate-spin" /> Compiling Vault...</>
-            ) : (
-              <><Library size={20} /> Analyze Archives</>
-            )}
-          </button>
+          <div className="flex flex-col sm:flex-row items-center justify-end gap-3 flex-shrink-0 w-full sm:w-auto">
+            <button 
+              onClick={() => handleAnalyzeVault(false)}
+              disabled={isAnalyzing}
+              className="flex-shrink-0 flex items-center justify-center gap-2 px-6 py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-2xl shadow-xl shadow-indigo-600/20 transition-all hover:-translate-y-1 w-full sm:w-auto text-sm"
+            >
+              {isAnalyzing ? (
+                <><Loader2 size={18} className="animate-spin" /> Compiling...</>
+              ) : (
+                <><Library size={18} /> Sync New Files</>
+              )}
+            </button>
+            <div className="flex flex-col gap-2 w-full sm:w-auto">
+                <button 
+                  onClick={async () => {
+                     setHasScanned(false);
+                     setIsAnalyzing(true);
+                     try {
+                        let currentCache = await fetchHighFidelityStories(user.uid);
+                        if (!currentCache || currentCache.length === 0) {
+                           alert("No cached stories found. Please run a full sync first.");
+                           setIsAnalyzing(false); return;
+                        }
+                        
+                        setProgressPercent(95);
+                        setEta("Synthesizing Legacy Insights...");
+                        setMappingProgress("Architecting universal timeline narratives and psychological drift. This may take 30-45 seconds...");
+                        
+                        const globalData = computeCentroidMath(RECOGNIZED_ERAS[0], currentCache);
+                        const globalCtx = await generateLegacyIdentityAction(globalData.archetype.primaryRiasec, globalData.archetype.secondaryRiasec, globalData.archetype.extraction, globalData.archetype.title);
+                        globalData.archetype.context = globalCtx;
+
+                        const insightsPackage: any = { allTime: globalData.archetype, eras: {} };
+
+                        for (let i = 1; i < RECOGNIZED_ERAS.length; i++) {
+                           const eraObj = RECOGNIZED_ERAS[i];
+                           const eraStories = currentCache.filter(s => s.era === eraObj.key || s.era === eraObj.label);
+                           if (eraStories.length > 0) {
+                              const cData = computeCentroidMath(eraObj, currentCache);
+                              const strGlobal = globalData.archetype.rawStories.slice(0, 10).map((s:any)=>s.title).join(", ");
+                              const strEra = cData.archetype.rawStories.slice(0, 10).map((s:any)=>s.title+": "+s.synopsis).join("\n").slice(0, 2000);
+                              
+                              const driftTxt = await generateDriftInsightAction("All-Time Timeline", globalData.archetype.title, eraObj.key, cData.archetype.title, strGlobal || "(No macro timeline)", strEra || "(No stories from this era)");
+                              insightsPackage.eras[eraObj.key] = { ...cData.archetype, driftInsight: driftTxt };
+                           }
+                        }
+
+                        const crossPattern = analyzeCrossMetricPattern(currentCache);
+                        if (crossPattern) {
+                           const deepDiveData = await generateLegacyDeepDiveAction(crossPattern.dominantTrait, crossPattern.flaw, crossPattern.flawScore, crossPattern.exampleStoryTitle);
+                           insightsPackage.deepDive = { ...crossPattern, ...deepDiveData };
+                        }
+                        
+                        await saveLegacyInsights(user.uid, insightsPackage);
+                        setProgressPercent(100);
+                        setStories(currentCache);
+                        alert("Insights successfully refreshed without rescanning documents!");
+                     } catch(e) { console.error(e); } finally { setIsAnalyzing(false); setProgressPercent(null); setEta(""); setHasScanned(true); setMappingProgress(""); }
+                  }}
+                  disabled={isAnalyzing}
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed font-bold rounded-xl transition-all text-xs w-full sm:w-auto"
+                >
+                  <Sparkles size={14}/> Regenerate Insights Only
+                </button>
+                <button 
+                  onClick={() => {
+                    if (window.confirm('Are you sure you want to completely rebuild your archive? This deletes the current cache and reads every document from scratch. It may take up to 45 minutes.')) { handleAnalyzeVault(true); }
+                  }}
+                  disabled={isAnalyzing}
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900 hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 border border-zinc-200 dark:border-zinc-800 hover:border-red-200 dark:hover:border-red-900/50 disabled:opacity-50 disabled:cursor-not-allowed font-bold rounded-xl transition-all text-xs w-full sm:w-auto"
+                >
+                  Force Full Re-Scan
+                </button>
+            </div>
+          </div>
         </div>
 
         {/* Central Vertical Timeline */}
@@ -291,12 +466,33 @@ export default function StoriesPage() {
                 {!isAnalyzing && [...(stories.length > 0 ? stories : (hasScanned ? [] : MOCK_STORIES))]
                   .filter(s => s.era !== "Timeless")
                   .sort((a, b) => (ERA_ORDER[a.era] || 99) - (ERA_ORDER[b.era] || 99))
-                  .map((story, i) => (
+                  .map((story, i) => {
+                    // @ts-ignore
+                    const impact = story.impact_metadata;
+                    const w_intensity = impact?.emotional_intensity || 2;
+                    let dotClass = "absolute left-[26px] md:left-[134px] top-6 w-5 h-5 bg-indigo-600 text-white rounded-full border-4 border-[#F3F4F6] dark:border-[#0f0f0f] shadow flex items-center justify-center";
+                    let innerClass = "w-1.5 h-1.5 bg-white rounded-full";
+                    let tagText = "Snapshot";
+                    let tagClass = "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border-zinc-200 dark:border-zinc-700";
+                    
+                    if (w_intensity >= 5) {
+                       dotClass = "absolute left-[20px] md:left-[128px] top-4 w-8 h-8 bg-amber-500 text-white rounded-full border-4 border-[#F3F4F6] dark:border-[#0f0f0f] shadow-[0_0_20px_rgba(245,158,11,0.6)] flex items-center justify-center z-10";
+                       innerClass = "w-3 h-3 bg-white rounded-full animate-pulse";
+                       tagText = "Core Memory";
+                       tagClass = "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/50";
+                    } else if (w_intensity >= 3) {
+                       dotClass = "absolute left-[24px] md:left-[132px] top-5 w-6 h-6 bg-indigo-500 text-white rounded-full border-4 border-[#F3F4F6] dark:border-[#0f0f0f] shadow-lg shadow-indigo-500/40 flex items-center justify-center";
+                       innerClass = "w-2 h-2 bg-white rounded-full";
+                       tagText = "Pivot Event";
+                       tagClass = "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 border-indigo-100 dark:border-indigo-800/50";
+                    }
+
+                    return (
               <div key={story.id || i} className="relative pl-20 md:pl-[210px]">
                 
                 {/* Timeline Dot */}
-                <div className="absolute left-[26px] md:left-[134px] top-6 w-5 h-5 bg-indigo-600 text-white rounded-full border-4 border-[#F3F4F6] dark:border-[#0f0f0f] shadow flex items-center justify-center">
-                   <div className="w-1.5 h-1.5 bg-white rounded-full" />
+                <div className={dotClass}>
+                   <div className={innerClass} />
                 </div>
                 
                 {/* Era Tag */}
@@ -308,8 +504,13 @@ export default function StoriesPage() {
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-white dark:bg-zinc-900 rounded-3xl p-6 border border-zinc-200 dark:border-zinc-800 shadow-sm relative overflow-hidden"
+                  className={`bg-white dark:bg-zinc-900 rounded-3xl p-6 border ${w_intensity >= 5 ? 'border-amber-500/50 shadow-amber-500/10' : 'border-zinc-200 dark:border-zinc-800'} shadow-sm relative overflow-hidden transition-all`}
                 >
+                  <div className="flex flex-wrap gap-2 items-center mb-3">
+                     <span className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-md border ${tagClass}`}>
+                        {tagText} {impact?.duration_weight ? `(Weight: x${(((w_intensity + (impact.narrative_complexity || 2))/2) * impact.duration_weight).toFixed(1)})` : ''}
+                     </span>
+                  </div>
                   <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">{story.title}</h2>
                   <p className="text-zinc-600 dark:text-zinc-400 mb-8 leading-relaxed">
                     "{story.synopsis}"
@@ -385,7 +586,7 @@ export default function StoriesPage() {
                           <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">
                             Extraction<br /><span className="text-xs opacity-75">(The Moral)</span>
                           </span>
-                          {story.rubric?.extraction ? (
+                          {story.extraction?.present ? (
                             <CheckCircle2 size={16} className="text-emerald-500" />
                           ) : (
                             <AlertTriangle size={16} className="text-red-500" />
@@ -394,11 +595,51 @@ export default function StoriesPage() {
 
                       </div>
                     </div>
+                    
+                    {/* Taxonomy Block */}
+                    {story.extraction?.present && story.extraction.depthLevel > 0 && (
+                      <div className="mt-4 p-4 rounded-xl bg-orange-50 dark:bg-orange-950/20 border border-orange-100 dark:border-orange-900/50">
+                        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-orange-200/50 dark:border-orange-900/50">
+                           <Globe size={14} className="text-orange-500" />
+                           <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wider">Wisdom Taxonomy</span>
+                           <div className="ml-auto flex items-center gap-1.5">
+                             <span className="text-[10px] bg-white dark:bg-zinc-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded shadow-sm font-semibold border border-orange-100 dark:border-orange-900">{story.extraction.primaryCategory}</span>
+                             {story.extraction.secondaryCategory !== "None" && story.extraction.secondaryCategory !== story.extraction.primaryCategory && (
+                               <span className="text-[10px] bg-orange-100/50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 px-2 py-0.5 rounded font-medium">{story.extraction.secondaryCategory}</span>
+                             )}
+                             <span className="text-[10px] bg-orange-200/50 dark:bg-orange-800/40 text-orange-800 dark:text-orange-200 px-1.5 py-0.5 rounded font-bold ml-1">Lvl {story.extraction.depthLevel}</span>
+                           </div>
+                        </div>
+                        
+                        <div className="space-y-3">
+                          {story.extraction.legacyLesson && (
+                            <div className="font-serif text-base text-zinc-900 dark:text-zinc-100 leading-snug">
+                              "{story.extraction.legacyLesson}"
+                            </div>
+                          )}
+                          
+                          {(story.extraction.insightSummary || story.extraction.rawQuote) && (
+                            <div className="pl-3 border-l-2 border-orange-200 dark:border-orange-800 space-y-1.5">
+                              {story.extraction.insightSummary && (
+                                <p className="text-xs font-medium text-orange-800/80 dark:text-orange-300/80 uppercase tracking-wide">
+                                  {story.extraction.insightSummary}
+                                </p>
+                              )}
+                              {story.extraction.rawQuote && (
+                                <p className="text-sm text-zinc-600 dark:text-zinc-400 italic">
+                                  "{story.extraction.rawQuote}"
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                   </div>
 
                   {/* AI Gap Trigger */}
-                  {!story.rubric?.extraction && story.gapPrompt && (
+                  {!story.extraction?.present && story.rubric?.conflict && (
                     <motion.div 
                       initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}
@@ -412,7 +653,10 @@ export default function StoriesPage() {
                              Narrative Gap Detected <span className="bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 px-2 py-0.5 rounded text-[10px] uppercase tracking-wider">AI Interruption</span>
                           </h4>
                           <p className="text-sm text-red-800 dark:text-red-300/80 leading-relaxed font-medium">
-                            {story.gapPrompt}
+                            {story.extraction?.depthLevel === 1 
+                              ? `You mentioned a surface-level lesson. If you were telling this to a grandchild, how would you explain the deeper 'why' behind that?` 
+                              : `This story has a lot of tension, but the lesson feels hidden. Looking back, how did this structural shift change your perspective?`
+                            }
                           </p>
                           <div className="mt-4 flex gap-3">
                             <button className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors">
@@ -429,7 +673,8 @@ export default function StoriesPage() {
 
                 </motion.div>
               </div>
-            ))}
+            );
+          })}
               </div>
             </div>
 

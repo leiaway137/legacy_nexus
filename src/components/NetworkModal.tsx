@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { X, Save, Mail, User, ShieldCheck, Loader2, Quote, RefreshCw } from "lucide-react";
+import { X, Save, Mail, User, ShieldCheck, Loader2, Quote, RefreshCw, Upload, Sparkles } from "lucide-react";
 import { Contact, saveContact, fetchContacts, NotebookSource } from "@/lib/firebase/db";
 import { recompileStoriesWithContactsAction } from "@/app/actions";
 import { fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/firebase/db";
+import { parseCSV, parseVCF, correlateContacts } from "@/lib/contacts";
 
 interface NetworkModalProps {
   userId: string;
@@ -32,6 +33,8 @@ export function NetworkModal({ userId, onClose, onContactsUpdated, contacts: ini
   const [editingId, setEditingId] = useState<string | null>(null);
   
   const [isCommitingBulk, setIsCommitingBulk] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Safeguard: Prevent accidental reloads when processing bulk commit
   useEffect(() => {
@@ -146,6 +149,38 @@ export function NetworkModal({ userId, onClose, onContactsUpdated, contacts: ini
     alert(`Invite drafted to ${contact.email} (check console for preview)`);
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    try {
+      const text = await file.text();
+      const pContacts = file.name.endsWith('.csv') ? parseCSV(text) : file.name.endsWith('.vcf') ? parseVCF(text) : parseCSV(text);
+      
+      if (pContacts.length === 0) {
+        alert("Failed to extract any contacts. Please check file format.");
+        return;
+      }
+      
+      // Run AI Correlation logic
+      const correlated = correlateContacts(userId, pContacts, localContacts);
+      
+      // Persist the delta
+      await Promise.all(correlated.map(c => saveContact(userId, c)));
+      
+      setLocalContacts(correlated);
+      onContactsUpdated(correlated);
+      alert(`Imported and Correlated ${pContacts.length} contacts automatically.`);
+    } catch (err) {
+      console.error("Import failed:", err);
+      alert("Failed to parse file.");
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <motion.div 
@@ -163,9 +198,14 @@ export function NetworkModal({ userId, onClose, onContactsUpdated, contacts: ini
             <p className="text-sm text-zinc-500 mt-1">Manage identities and resolve mapping discrepancies.</p>
           </div>
           <div className="flex gap-3">
+             <input type="file" accept=".vcf,.csv" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
+             <button disabled={isImporting || isCommitingBulk} onClick={() => fileInputRef.current?.click()} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50">
+               {isImporting ? <Loader2 className="animate-spin" size={16}/> : <Upload size={16}/>}
+               {isImporting ? "Processing..." : "Import Contacts"}
+             </button>
              <button disabled={isCommitingBulk || localContacts.length === 0} onClick={handleBulkCommit} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50">
                {isCommitingBulk ? <Loader2 className="animate-spin" size={16}/> : <RefreshCw size={16}/>}
-               {isCommitingBulk ? "Rewriting Timeline..." : "Commit Changes to Timeline"}
+               {isCommitingBulk ? "Rewriting Timeline..." : "Commit Changes"}
              </button>
              <button disabled={isCommitingBulk} onClick={onClose} className="p-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-full transition disabled:opacity-50"><X size={20}/></button>
           </div>
@@ -275,7 +315,7 @@ export function NetworkModal({ userId, onClose, onContactsUpdated, contacts: ini
                       <div className="p-5 flex flex-col h-full">
                          <div className="flex justify-between items-start mb-2">
                            <h3 className="font-bold text-lg text-zinc-900 dark:text-zinc-100 truncate pr-2 flex items-center gap-2 flex-wrap">
-                             {contact.completeName}
+                             {contact.completeName || contact.originalName}
                              {contact.relationship && (
                                 <span className="text-[10px] bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold border border-indigo-200 dark:border-indigo-800">
                                    {contact.relationship}
@@ -284,17 +324,35 @@ export function NetworkModal({ userId, onClose, onContactsUpdated, contacts: ini
                            </h3>
                            {contact.linkedAccountId && <ShieldCheck size={18} className="text-emerald-500 flex-shrink-0" title="Verified Nexus User"/>}
                          </div>
-                         <div className="text-xs text-zinc-500 mb-3 border-b border-zinc-100 dark:border-zinc-800/60 pb-3">
+                         <div className="text-xs text-zinc-500 mb-2">
                             Extracted as: <span className="font-mono text-zinc-600 dark:text-zinc-400 text-[11px] bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">{contact.originalName}</span>
                          </div>
                          
-                         {/* Disambiguation Context */}
-                         <div className="bg-amber-50/50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/50 rounded-lg p-3 mb-4">
-                            <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-600/70 mb-1.5"><Quote size={10}/> Context Reference</span>
-                            <p className="text-xs italic text-zinc-600 dark:text-zinc-400 leading-relaxed truncate whitespace-normal line-clamp-3">
-                               {getContextSnippet(sources, contact.originalName)}
-                            </p>
+                         <div className="mt-1 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-wider mb-3">
+                            {(!contact.source || contact.source === 'story') && <span className="text-blue-500 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 px-2 py-0.5 rounded">Extracted from Story</span>}
+                            {contact.source === 'import' && <span className="text-amber-500 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 px-2 py-0.5 rounded">Phone Import</span>}
+                            {contact.source === 'merged' && <span className="text-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 px-2 py-0.5 rounded flex items-center gap-1"><ShieldCheck size={10}/> Verified Merge</span>}
                          </div>
+                         
+                         {/* Disambiguation Context */}
+                         {(!contact.source || contact.source === 'story' || contact.source === 'merged') ? (
+                           <div className="bg-amber-50/50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/50 rounded-lg p-3 mb-4">
+                              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-600/70 mb-1.5"><Quote size={10}/> Context Reference</span>
+                              <p className="text-xs italic text-zinc-600 dark:text-zinc-400 leading-relaxed truncate whitespace-normal line-clamp-3">
+                                 {getContextSnippet(sources, contact.originalName)}
+                              </p>
+                           </div>
+                         ) : (
+                           <div className="bg-zinc-50 dark:bg-zinc-800/30 border border-zinc-200 dark:border-zinc-700/50 rounded-lg p-3 mb-4">
+                              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-1.5">Missing Narrative</span>
+                              <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed mb-3">
+                                 This individual was imported from your phone, but has no verified stories associated with them.
+                              </p>
+                              <button className="w-full justify-center bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-800 text-[10px] font-bold uppercase tracking-widest py-2 rounded flex items-center gap-1.5 transition">
+                                 <Sparkles size={12}/> Prompt Interview about {contact.firstName || contact.originalName}
+                              </button>
+                           </div>
+                         )}
                          
                          {contact.aliases && contact.aliases.length > 0 && (
                             <div className="mt-auto mb-4 flex flex-wrap gap-1.5">

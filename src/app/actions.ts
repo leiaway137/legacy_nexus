@@ -1,6 +1,6 @@
 "use server";
 
-import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview } from "@/lib/rag";
+import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive } from "@/lib/rag";
 import { getPineconeIndex } from "@/lib/pinecone/client";
 // @ts-ignore - Bypass Turbopack static ESM export resolution
 import pdfParseModule from "pdf-parse/lib/pdf-parse.js";
@@ -37,6 +37,10 @@ export async function reduceDashboardOverviewAction(currentOverview: DashboardOv
     console.error("Action error reducing dashboard overview:", err);
     throw err;
   }
+}
+
+export async function generateLegacyIdentityAction(primary: string, secondary: string, category: string, title: string): Promise<string> {
+  return await generateLegacyIdentityContext(primary, secondary, category, title);
 }
 
 export async function uploadAndExtractAction(formData: FormData): Promise<string> {
@@ -197,9 +201,9 @@ const CHRONOLOGY_MAP: Record<string, number> = {
   "Timeless": 7
 };
 
-export async function extractHighFidelityStoriesAction(context: string, culturalContext?: string, relationalContext?: string, mainSubjectName?: string): Promise<HighFidelityStory[]> {
+export async function extractHighFidelityStoriesAction(context: string, culturalContext?: string, relationalContext?: string, identityContext?: string): Promise<HighFidelityStory[]> {
   try {
-    const stories = await extractHighFidelityStories(context, culturalContext, relationalContext, mainSubjectName);
+    const stories = await extractHighFidelityStories(context, culturalContext, relationalContext, identityContext);
     return stories.sort((a, b) => (CHRONOLOGY_MAP[a.era] || 99) - (CHRONOLOGY_MAP[b.era] || 99));
   } catch (error: any) {
     console.error("Failed to extract high fidelity stories:", error);
@@ -226,4 +230,24 @@ export async function recompileStoriesWithContactsAction(cachedStories: HighFide
     console.error("Failed to recompile high fidelity stories:", error);
     return cachedStories;
   }
+}
+
+export async function generateDriftInsightAction(
+  eraA: string,
+  archetypeA: string,
+  eraB: string,
+  archetypeB: string,
+  storyContextA: string,
+  storyContextB: string
+): Promise<string> {
+  return await generateDriftInsight(eraA, archetypeA, eraB, archetypeB, storyContextA, storyContextB);
+}
+
+export async function generateLegacyDeepDiveAction(
+  dominantTrait: string,
+  flaw: string,
+  flawScore: number,
+  exampleStoryTitle: string
+): Promise<{ title: string; analysis: string; prompt: string }> {
+  return await generateLegacyDeepDive(dominantTrait, flaw, flawScore, exampleStoryTitle);
 }
