@@ -153,6 +153,7 @@ export async function deletePineconeSourceAction(userId: string, sourceId: strin
 
 export async function deleteAllPineconeResourcesAction(userId: string): Promise<boolean> {
   try {
+    const index = getPineconeIndex();
     const ns = index.namespace(userId);
     await ns.deleteAll();
     console.log(`[Pinecone GC] Scrubbed ENTIRE namespace for user: ${userId}`);
