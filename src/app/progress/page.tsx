@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Activity, Info, TrendingUp, Sparkles, Target, Compass, Edit3, MessageSquare, Star, ChevronLeft, ChevronRight, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, Activity, Info, TrendingUp, Sparkles, Target, Compass, Edit3, MessageSquare, Star, ChevronLeft, ChevronRight, XCircle, Library } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
