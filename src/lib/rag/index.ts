@@ -840,9 +840,11 @@ export async function generateDriftInsight(
     Here are summaries of the core experiences from their ${eraB}:
     ${storyContextB || "(No major documented core memories for this era.)"}
 
+    CRITICAL INSTRUCTION: Do NOT write generic, fortune-cookie philosophy. You MUST explicitly reference the tangible people, physical events, and literal occurrences described in the story context above.
+    
     Using fluid, navigational metaphors ("streams", "currents", "tributaries", "anchors", "flows"), write a SINGLE, concise paragraph explaining this shift.
-    Do NOT just list what happened. Explain WHY the transition occurred based on the provided story context.
-    Keep it profound, highly empathetic, and direct. Use the second person ("You"). Maximum 4 sentences.
+    Explain WHY the transition occurred by explicitly citing the exact real-world events or actions you read in the provided context. Show, don't just tell.
+    Keep it profound, highly empathetic, but intensely literal. Use the second person ("You"). Maximum 4 sentences.
   `;
 
   try {
@@ -861,7 +863,8 @@ export async function generateLegacyDeepDive(
   dominantTrait: string,
   flaw: string,
   flawScore: number,
-  exampleStoryTitle: string
+  exampleStoryTitle: string,
+  exampleStoryContext?: string
 ): Promise<{ title: string; analysis: string; prompt: string }> {
   const prompt = `
     You are the "Architect Philosopher" for Legacy Nexus. You are evaluating a user's life archive.
@@ -870,13 +873,16 @@ export async function generateLegacyDeepDive(
     Data:
     - Their dominant personality trait across all stories is: ${dominantTrait}
     - However, their ${flaw} (either "Extraction/Lessons Learned" or "Conflict Resolution") rate is dangerously low: only ${Math.round(flawScore * 100)}%.
-    - An example defining story of theirs is titled: "${exampleStoryTitle}".
+    - A defining narrative memory from their life is titled "${exampleStoryTitle}". 
+    - The actual events of that memory: ${exampleStoryContext || "(No memory context provided)"}
 
+    CRITICAL INSTRUCTION: Do NOT write generic, fortune-cookie philosophy. You MUST explicitly reference the tangible people, physical events, and literal occurrences described in the memory context above.
+    
     Your task is to write a deeply empathetic but sharp "Cross-Metric Insight".
     You must output JSON with exactly three fields:
     1. "title": A paradoxical title (e.g., "The Paradox of the Titan", "The Unresolved Empath").
-    2. "analysis": A 2-3 sentence observation pointing out the friction between their massive ${dominantTrait} actions but their lack of ${flaw}. Focus on the psychological tension.
-    3. "prompt": A gentle but profound question challenging them to reflect on the human cost or internal reality of "${exampleStoryTitle}" or their general approach to life.
+    2. "analysis": A 2-3 sentence observation pointing out the friction between their massive ${dominantTrait} actions but their lack of ${flaw}. You MUST explicitly cite specific actions or events from the "${exampleStoryTitle}" memory to prove your point.
+    3. "prompt": A gentle but profound question challenging them to reflect on the human cost or internal reality of the specific events in "${exampleStoryTitle}". Do not ask a broad question; anchor it in the specific memory.
 
     Output strict JSON format.
   `;

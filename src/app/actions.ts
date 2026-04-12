@@ -248,7 +248,8 @@ export async function generateLegacyDeepDiveAction(
   dominantTrait: string,
   flaw: string,
   flawScore: number,
-  exampleStoryTitle: string
+  exampleStoryTitle: string,
+  exampleStoryContext: string
 ): Promise<{ title: string; analysis: string; prompt: string }> {
-  return await generateLegacyDeepDive(dominantTrait, flaw, flawScore, exampleStoryTitle);
+  return await generateLegacyDeepDive(dominantTrait, flaw, flawScore, exampleStoryTitle, exampleStoryContext);
 }

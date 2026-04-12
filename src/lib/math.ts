@@ -164,6 +164,7 @@ export function analyzeCrossMetricPattern(stories: HighFidelityStory[]) {
        dominantTrait: domLabel,
        flaw: structuralIssue,
        flawScore: score,
-       exampleStoryTitle: representativeStory?.title || "a specific memory"
+       exampleStoryTitle: representativeStory?.title || "a specific memory",
+       exampleStoryContext: representativeStory?.synopsis || "No narrative available"
     };
 }

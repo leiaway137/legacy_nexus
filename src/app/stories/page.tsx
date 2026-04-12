@@ -403,7 +403,7 @@ export default function StoriesPage() {
 
                         const crossPattern = analyzeCrossMetricPattern(currentCache);
                         if (crossPattern) {
-                           const deepDiveData = await generateLegacyDeepDiveAction(crossPattern.dominantTrait, crossPattern.flaw, crossPattern.flawScore, crossPattern.exampleStoryTitle);
+                           const deepDiveData = await generateLegacyDeepDiveAction(crossPattern.dominantTrait, crossPattern.flaw, crossPattern.flawScore, crossPattern.exampleStoryTitle, crossPattern.exampleStoryContext);
                            insightsPackage.deepDive = { ...crossPattern, ...deepDiveData };
                         }
                         

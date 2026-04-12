@@ -147,7 +147,7 @@ export default function ProgressPage() {
            setDriftInsight(compiledEra.driftInsight);
         } else {
            setActiveArchetype(cData.archetype);
-           setDriftInsight("The Oracle has not generated an insight for this explicit era transition yet.");
+           setDriftInsight(null);
         }
      }
   }
@@ -458,11 +458,17 @@ export default function ProgressPage() {
           </div>
         </div>
         
-        <div className="bg-zinc-100 dark:bg-zinc-900/50 rounded-2xl p-4 flex items-start gap-4 text-sm text-zinc-500 mt-8">
-          <Info size={20} className="text-zinc-400 flex-shrink-0 mt-0.5" />
-          <p>
-            <strong>Live Analytics:</strong> These visualizations are mapped precisely to the mathematical tags outputted dynamically by the Archivist AI when you compile your transcripts.
-          </p>
+        <div className="bg-zinc-100 dark:bg-zinc-900/50 rounded-2xl p-4 flex flex-col gap-3 text-sm text-zinc-500 mt-8">
+          <div className="flex items-start gap-4">
+            <Info size={20} className="text-zinc-400 flex-shrink-0 mt-0.5" />
+            <p>
+              <strong>Live Analytics:</strong> These visualizations are mapped precisely to the mathematical tags outputted dynamically by the Archivist AI when you compile your transcripts.
+            </p>
+          </div>
+          <Link href="/" className="mt-2 w-full flex items-center justify-center gap-2 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 py-3 rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-sm transition font-semibold">
+            <Library size={18} />
+            Return to Legacy Archives
+          </Link>
         </div>
 
       </div>
