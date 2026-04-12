@@ -465,9 +465,9 @@ export default function ProgressPage() {
               <strong>Live Analytics:</strong> These visualizations are mapped precisely to the mathematical tags outputted dynamically by the Archivist AI when you compile your transcripts.
             </p>
           </div>
-          <Link href="/" className="mt-2 w-full flex items-center justify-center gap-2 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 py-3 rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-sm transition font-semibold">
+          <Link href="/stories" className="mt-2 w-full flex items-center justify-center gap-2 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 py-3 rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-sm transition font-semibold">
             <Library size={18} />
-            Return to Legacy Archives
+            Return to High Fidelity Stories
           </Link>
         </div>
 
