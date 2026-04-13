@@ -842,10 +842,23 @@ export async function generateDriftInsight(
     ${storyContextB || "(No major documented core memories for this era.)"}
 
     CRITICAL INSTRUCTION: Do NOT write generic, fortune-cookie philosophy. You MUST explicitly reference the tangible people, physical events, and literal occurrences described in the story context above.
+    CRITICAL FORMATTING INSTRUCTION: 
+    Do NOT use quotation marks when referencing information drawn from the user's stories. Instead, **bold** the important information and story titles.
+    Do NOT use "River of Time" or water analogies (no rivers, currents, confluence, streams, aquaducts, etc.).
+    Keep it profound, highly empathetic, but intensely literal. Use the second person ("You").
+
+    Generate the synthesis using EXACTLY the following Markdown structure:
     
-    Using fluid, navigational metaphors ("streams", "currents", "tributaries", "anchors", "flows"), write a SINGLE, concise paragraph explaining this shift.
-    Explain WHY the transition occurred by explicitly citing the exact real-world events or actions you read in the provided context. Show, don't just tell.
-    Keep it profound, highly empathetic, but intensely literal. Use the second person ("You"). Maximum 4 sentences.
+    > **"[Summary Quote: A bold, high-level insight summarizing the shift from ${archetypeA} to ${archetypeB}]"**
+
+    #### **The Narrative Drift**
+    [Compare the past era (${eraA}) to the current era (${eraB}), explaining the psychological change without using water anomalies. Be direct.]
+
+    #### **The Catalyst of Action**
+    [Bullet points of specific story evidence verifying this transition. Bold the specific story names and literal actions.]
+
+    #### **The Architect's Reflection**
+    [A final philosophical closing statement defining the legacy of this pivot.]
   `;
 
   try {

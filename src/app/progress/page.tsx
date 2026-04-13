@@ -9,6 +9,7 @@ import { LoginModule } from "@/components/LoginModule";
 import { fetchHighFidelityStories, fetchLegacyInsights } from "@/lib/firebase/db";
 import { HighFidelityStory } from "@/lib/rag";
 import { computeCentroidMath, RECOGNIZED_ERAS, LABELS } from "@/lib/math";
+import ReactMarkdown from "react-markdown";
 
 // SVG Geometry for Hexagon
 const size = 300;
@@ -436,9 +437,21 @@ export default function ProgressPage() {
                       <div className="min-h-[4rem] relative overflow-hidden">
                         {driftInsight ? (
                            <div className="mt-4 pt-4 border-t border-indigo-200 dark:border-indigo-800/50">
-                             <p className="text-sm text-indigo-900 dark:text-indigo-200 font-medium leading-relaxed italic border-l-2 border-indigo-400 pl-3">
-                               {driftInsight}
-                             </p>
+                             <div className="text-sm text-indigo-900 dark:text-indigo-200 leading-relaxed border-l-2 border-indigo-400 pl-3">
+                               <ReactMarkdown 
+                                 components={{
+                                   h4: ({node, ...props}) => <h4 className="text-base text-indigo-900 dark:text-indigo-300 font-bold mt-5 mb-2" {...props} />,
+                                   p: ({node, ...props}) => <p className="mb-3 leading-relaxed" {...props} />,
+                                   ul: ({node, ...props}) => <ul className="list-disc pl-5 my-3 space-y-1" {...props} />,
+                                   li: ({node, ...props}) => <li className="" {...props} />,
+                                   strong: ({node, ...props}) => <strong className="font-bold text-indigo-950 dark:text-indigo-200" {...props} />,
+                                   blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-indigo-500 pl-4 py-2 my-4 bg-indigo-50 dark:bg-indigo-950/40 font-medium text-indigo-800 dark:text-indigo-300 shadow-sm rounded-r-md" {...props} />,
+                                   hr: ({node, ...props}) => <hr className="my-5 border-indigo-200 dark:border-indigo-800/60" {...props} />
+                                 }}
+                               >
+                                 {driftInsight}
+                               </ReactMarkdown>
+                             </div>
                            </div>
                         ) : (
                            <div className="mt-4 pt-4 border-t border-indigo-200 dark:border-indigo-800/50">
