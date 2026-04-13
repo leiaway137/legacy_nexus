@@ -1,6 +1,6 @@
 "use server";
 
-import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive } from "@/lib/rag";
+import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive, extractDemographicsFromTranscript } from "@/lib/rag";
 import { getPineconeIndex } from "@/lib/pinecone/client";
 // @ts-ignore - Bypass Turbopack static ESM export resolution
 import pdfParseModule from "pdf-parse/lib/pdf-parse.js";
@@ -183,12 +183,12 @@ export async function chatWithLegacyAction(context: string, question: string, hi
   }
 }
 
-export async function conductActiveInterviewAction(history: { role: string; text: string }[], imageBase64?: string, persona?: string): Promise<string> {
+export async function conductActiveInterviewAction(history: { role: string; text: string }[], imageBase64?: string, persona?: string, pendingQuestions?: string[], currentTrustScore: number = 0): Promise<{ response: string; trustScoreDelta: number; sentiment: string; vulnerability: string; wisdomDensity: string }> {
   try {
-    return await conductActiveInterview(history, imageBase64, persona);
+    return await conductActiveInterview(history, imageBase64, persona, pendingQuestions, currentTrustScore);
   } catch (error: any) {
     console.error("Failed to conduct active interview:", error);
-    return "SYSTEM ERROR: " + (error?.message || error);
+    return { response: "SYSTEM ERROR: " + (error?.message || error), trustScoreDelta: 0, sentiment: "Neutral", vulnerability: "Low", wisdomDensity: "Low" };
   }
 }
 
@@ -252,4 +252,13 @@ export async function generateLegacyDeepDiveAction(
   exampleStoryContext: string
 ): Promise<{ title: string; analysis: string; prompt: string }> {
   return await generateLegacyDeepDive(dominantTrait, flaw, flawScore, exampleStoryTitle, exampleStoryContext);
+}
+
+export async function extractDemographicsAction(transcript: string): Promise<Record<string, string>> {
+  try {
+    return await extractDemographicsFromTranscript(transcript);
+  } catch (error) {
+    console.error("Failed to extract demographics:", error);
+    return {};
+  }
 }

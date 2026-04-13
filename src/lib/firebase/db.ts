@@ -1,4 +1,4 @@
-import { getFirestore, collection, addDoc, serverTimestamp, query, where, getDocs, doc, deleteDoc, orderBy, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { getFirestore, collection, addDoc, serverTimestamp, query, where, getDocs, doc, deleteDoc, orderBy, getDoc, setDoc, updateDoc, increment } from "firebase/firestore";
 import { app } from "./client";
 import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview } from "@/lib/rag";
 
@@ -164,6 +164,7 @@ export interface UserProfile {
   culturalHeritage?: string;
   primaryLanguage?: string;
   secondaryLanguages?: string;
+  trustScore?: number;
   updatedAt?: any;
 }
 
@@ -187,6 +188,18 @@ export async function updateUserProfile(userId: string, data: Partial<UserProfil
     return true;
   } catch (error) {
     console.error("Failed to update user profile:", error);
+    return false;
+  }
+}
+
+export async function incrementUserTrustScore(userId: string, delta: number): Promise<boolean> {
+  if (delta === 0) return true;
+  try {
+    const docRef = doc(db, "user_profiles", userId);
+    await setDoc(docRef, { trustScore: increment(delta), updatedAt: serverTimestamp() }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error("Failed to increment user trust score:", error);
     return false;
   }
 }
@@ -327,4 +340,61 @@ export async function fetchLegacyInsights(userId: string): Promise<any | null> {
     console.error("Failed to fetch legacy insights:", error);
   }
   return null;
+}
+
+// ---- QUESTION BANK PERSISTENCE ----
+
+export interface QuestionBankItem {
+  id: string; // Firestore doc ID
+  userId: string;
+  text: string;
+  source: 'dashboard' | 'gap_prompt';
+  storyId?: string; // If source == 'gap_prompt'
+  isAnswered: boolean;
+  createdAt: any;
+}
+
+export async function saveQuestionBankItem(userId: string, data: Partial<QuestionBankItem>): Promise<string | null> {
+  try {
+    const colRef = collection(db, "legacy_questions");
+    
+    const q = query(colRef, where("userId", "==", userId), where("text", "==", data.text));
+    const dupCheck = await getDocs(q);
+    
+    if (!dupCheck.empty) {
+      return dupCheck.docs[0].id;
+    }
+
+    const docRef = await addDoc(colRef, { ...data, userId, isAnswered: false, createdAt: serverTimestamp() });
+    return docRef.id;
+  } catch (err) {
+    console.error("Failed to save question to bank:", err);
+    return null;
+  }
+}
+
+export async function fetchPendingBankQuestions(userId: string, limitCount: number = 5): Promise<QuestionBankItem[]> {
+  try {
+    const q = query(collection(db, "legacy_questions"), where("userId", "==", userId), where("isAnswered", "==", false));
+    const snap = await getDocs(q);
+    const docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuestionBankItem));
+    const sorted = docs.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+    return sorted.slice(0, limitCount);
+  } catch (err) {
+    console.error("Failed to fetch pending questions:", err);
+    return [];
+  }
+}
+
+export async function markQuestionsAnswered(questionIds: string[]): Promise<boolean> {
+  try {
+    for (const id of questionIds) {
+      const docRef = doc(db, "legacy_questions", id);
+      await updateDoc(docRef, { isAnswered: true });
+    }
+    return true;
+  } catch (err) {
+    console.error("Failed to mark questions answered:", err);
+    return false;
+  }
 }

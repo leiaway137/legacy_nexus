@@ -3,14 +3,16 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mic, MicOff, Image as ImageIcon, X, Loader2, Save, Download, Play, Square } from "lucide-react";
-import { conductActiveInterviewAction } from "@/app/actions";
+import { conductActiveInterviewAction, extractDemographicsAction } from "@/app/actions";
+import { fetchPendingBankQuestions, markQuestionsAnswered, fetchUserProfile, incrementUserTrustScore, updateUserProfile } from "@/lib/firebase/db";
 
 interface InterviewerModalProps {
+  userId: string;
   onClose: () => void;
   onSave: (transcript: string) => Promise<void>;
 }
 
-export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
+export function InterviewerModal({ userId, onClose, onSave }: InterviewerModalProps) {
   const [history, setHistory] = useState<{ role: string; text: string }[]>([]);
   const historyRef = useRef<{ role: string; text: string }[]>([]);
   const [imageBase64, setImageBase64] = useState<string | undefined>();
@@ -20,7 +22,22 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
   const [micError, setMicError] = useState<string | null>(null);
   const [selectedPersona, setSelectedPersona] = useState<string>("Warm & Reflective");
 
+  const [pendingQuestions, setPendingQuestions] = useState<{id: string, text: string}[]>([]);
+  const [trustScore, setTrustScore] = useState<number>(0);
+
+  useEffect(() => {
+    fetchPendingBankQuestions(userId, 5).then((items) => {
+       setPendingQuestions(items.map(item => ({id: item.id, text: item.text})));
+    });
+    fetchUserProfile(userId).then(profile => {
+       if (profile && profile.trustScore) {
+          setTrustScore(profile.trustScore);
+       }
+    });
+  }, [userId]);
+
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Audio blob storage
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -33,6 +50,8 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const transcriptBufferRef = useRef<string>("");
   const isProcessingTurnRef = useRef<boolean>(false);
+  const currentTurnIdRef = useRef<number>(0);
+  const isAiSpeakingRef = useRef<boolean>(false);
 
   useEffect(() => {
     // Initialize Web Speech API
@@ -43,20 +62,27 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
       recognitionRef.current.interimResults = true;
 
       recognitionRef.current.onresult = (event: any) => {
-        if (isProcessingTurnRef.current) return;
+        if (isAiSpeakingRef.current) return;
         
         let currentTranscript = "";
         for (let i = 0; i < event.results.length; ++i) {
           currentTranscript += event.results[i][0].transcript;
         }
+        
+        if (isProcessingTurnRef.current) {
+           // User interrupted the synthesizer!
+           isProcessingTurnRef.current = false;
+           setIsAiThinking(false);
+           currentTurnIdRef.current += 1; 
+        }
+
         setLiveTranscript(currentTranscript);
         transcriptBufferRef.current = currentTranscript;
 
-        // Silence detection to trigger AI Turn automatically
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = setTimeout(() => {
           handleUserSilenceDetected();
-        }, 2000); // 2 seconds of silence = turn over
+        }, 4000); // 4 seconds of silence = turn over
       };
 
       recognitionRef.current.onerror = (event: any) => {
@@ -93,20 +119,32 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
   const handleUserSilenceDetected = () => {
     if (!transcriptBufferRef.current.trim() || isProcessingTurnRef.current) return;
     isProcessingTurnRef.current = true;
-    
-    if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch(e) {}
-    }
-    setIsRecording(false);
+    currentTurnIdRef.current += 1;
+    const thisTurnId = currentTurnIdRef.current;
     
     const finalizedText = transcriptBufferRef.current.trim();
     setLiveTranscript("");
     transcriptBufferRef.current = "";
     
-    setHistory(prev => [...prev, { role: "user", text: finalizedText }]);
-    historyRef.current = [...historyRef.current, { role: "user", text: finalizedText }];
+    setHistory(prev => {
+        const newH = [...prev];
+        const lastMsg = newH[newH.length - 1];
+        if (lastMsg && lastMsg.role === 'user') {
+            lastMsg.text += " ... " + finalizedText;
+        } else {
+            newH.push({ role: "user", text: finalizedText });
+        }
+        return newH;
+    });
     
-    triggerAiTurn(historyRef.current);
+    const lastRefMsg = historyRef.current[historyRef.current.length - 1];
+    if (lastRefMsg && lastRefMsg.role === 'user') {
+        lastRefMsg.text += " ... " + finalizedText;
+    } else {
+        historyRef.current = [...historyRef.current, { role: "user", text: finalizedText }];
+    }
+    
+    triggerAiTurn(historyRef.current, thisTurnId);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -141,7 +179,8 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
       setHasStarted(true);
       
       // AI initiates conversation
-      triggerAiTurn(historyRef.current);
+      currentTurnIdRef.current += 1;
+      triggerAiTurn(historyRef.current, currentTurnIdRef.current);
     } catch (err: any) {
       console.error("Microphone access denied or not found:", err);
       if (err.name === 'NotFoundError' || err.message.includes('Requested device not found')) {
@@ -172,7 +211,8 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
         const newHistory = [...history, { role: "user", text: liveTranscript.trim() }];
         setHistory(newHistory);
         setLiveTranscript("");
-        triggerAiTurn(newHistory);
+        currentTurnIdRef.current += 1;
+        triggerAiTurn(newHistory, currentTurnIdRef.current);
       }
     } else {
       window.speechSynthesis.cancel(); // stop AI if talking
@@ -182,12 +222,55 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
     }
   };
 
-  const triggerAiTurn = async (currentHistory: { role: string; text: string }[]) => {
+  const triggerAiTurn = async (currentHistory: { role: string; text: string }[], turnId: number) => {
     setIsAiThinking(true);
-    const aiResponseText = await conductActiveInterviewAction(currentHistory, currentHistory.length === 0 ? imageBase64 : undefined, selectedPersona);
+    const questionStrings = pendingQuestions.map(q => q.text);
+    const { response, trustScoreDelta, sentiment, vulnerability, wisdomDensity } = await conductActiveInterviewAction(currentHistory, currentHistory.length === 0 ? imageBase64 : undefined, selectedPersona, questionStrings, trustScore);
+    
+    if (currentTurnIdRef.current !== turnId) {
+        return; // We were interrupted
+    }
+    
     setIsAiThinking(false);
     
+    if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch(e) {}
+    }
+    setIsRecording(false);
+    isProcessingTurnRef.current = false;
+    isAiSpeakingRef.current = true;
+    
+    let appliedDelta = trustScoreDelta;
+    
+    if (wisdomDensity === "High") {
+       appliedDelta += 10;
+       
+       setHistory(prev => {
+          const newH = [...prev];
+          if (newH.length > 0) {
+             const lastUser = newH[newH.length - 1];
+             if (lastUser.role === 'user' && !lastUser.text.includes('#LifeLesson')) {
+                lastUser.text += "\n\n[#LifeLesson]";
+             }
+          }
+          return newH;
+       });
+       
+       if (historyRef.current.length > 0) {
+          const lastUserRef = historyRef.current[historyRef.current.length - 1];
+          if (lastUserRef.role === 'user' && !lastUserRef.text.includes('#LifeLesson')) {
+             lastUserRef.text += "\n\n[#LifeLesson]";
+          }
+       }
+    }
+    
+    if (appliedDelta > 0) {
+       setTrustScore(prev => prev + appliedDelta);
+       incrementUserTrustScore(userId, appliedDelta).catch(e => console.error(e));
+    }
+    
     // Add to history
+    const aiResponseText = response;
     setHistory(prev => [...prev, { role: "assistant", text: aiResponseText }]);
     historyRef.current = [...historyRef.current, { role: "assistant", text: aiResponseText }];
     
@@ -204,6 +287,7 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
 
     utterance.onend = () => {
       setIsAiSpeaking(false);
+      isAiSpeakingRef.current = false;
       // Auto-hot-mic for hands-free Gemini Live interaction loop
       // Provide a slight delay to avoid capturing the tail end of the AI's own voice echo if using speakers
       setTimeout(() => {
@@ -211,7 +295,6 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
           try {
             setLiveTranscript("");
             transcriptBufferRef.current = "";
-            isProcessingTurnRef.current = false; // unlock after AI finishes speaking
             recognitionRef.current.start();
             setIsRecording(true);
           } catch(e) {
@@ -226,6 +309,9 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
 
 
   const handleEndAndSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    
     stopSessionRecording();
     
     // Compile history into a markdown-like transcript
@@ -236,8 +322,24 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
       transcriptData += `**${msg.role === 'user' ? 'LegacyKeeper' : 'AI Interviewer'}:**\n${msg.text}\n\n`;
     }
     
-    await onSave(transcriptData);
-    onClose();
+    // Trigger Identity Harvester in the background
+    extractDemographicsAction(transcriptData).then((profileUpdates) => {
+       if (Object.keys(profileUpdates).length > 0) {
+          updateUserProfile(userId, profileUpdates).catch(e => console.error("Identity Harvester Failed:", e));
+       }
+    }).catch(e => console.error(e));
+    
+    // Mark pending questions as answered so they rotate out of the queue
+    if (pendingQuestions.length > 0) {
+       await markQuestionsAnswered(pendingQuestions.map(q => q.id));
+    }
+    
+    try {
+       await onSave(transcriptData);
+    } finally {
+       setIsSaving(false);
+       onClose();
+    }
   };
 
   return (
@@ -380,10 +482,10 @@ export function InterviewerModal({ onClose, onSave }: InterviewerModalProps) {
                 )}
                 <button 
                   onClick={handleEndAndSave}
-                  disabled={historyRef.current.length === 0}
-                  className="px-4 py-2 bg-zinc-900 text-white dark:bg-white dark:text-black hover:opacity-90 rounded-xl text-sm font-bold transition flex items-center gap-2 disabled:opacity-50"
+                  disabled={historyRef.current.length === 0 || isSaving}
+                  className="px-4 py-2 bg-zinc-900 text-white dark:bg-white dark:text-black hover:opacity-90 rounded-xl text-sm font-bold transition flex items-center gap-2 disabled:opacity-50 w-[140px] justify-center"
                 >
-                  <Save size={16}/> Save to Vault
+                  {isSaving ? <><Loader2 size={16} className="animate-spin"/> Saving...</> : <><Save size={16}/> Save to Vault</>}
                 </button>
               </div>
 

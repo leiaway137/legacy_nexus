@@ -929,3 +929,60 @@ export async function generateLegacyDeepDive(
      prompt: "Looking back at your greatest achievements, what did they cost you internally?"
   };
 }
+
+export async function extractDemographicsFromTranscript(transcriptText: string): Promise<Record<string, string>> {
+  if (!transcriptText.trim()) return {};
+  
+  const prompt = `
+    You are the "Identity Harvester" for Legacy Nexus.
+    Your task is to silently read the following raw interview transcript and extract any explicitly stated demographic information.
+    
+    CRITICAL INSTRUCTION: DO NOT GUESS OR MAKE ASSUMPTIONS. Do not extract information from the interviewer's prompts. 
+    Only extract information actively provided by the individual being interviewed. If a field is not explicitly mentioned, omit it entirely from the output JSON.
+    
+    The schema fields are:
+    - firstName: (e.g., Albert)
+    - lastName:
+    - pronouns: ("He/Him", "She/Her", "They/Them", etc)
+    - placeOfBirth: (e.g., Hong Kong)
+    - residence: 
+    - culturalHeritage: (e.g., Han Chinese, Irish-American)
+    - primaryLanguage:
+
+    Transcript to Analyze:
+    "${transcriptText}"
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            firstName: { type: Type.STRING },
+            lastName: { type: Type.STRING },
+            pronouns: { type: Type.STRING },
+            placeOfBirth: { type: Type.STRING },
+            residence: { type: Type.STRING },
+            culturalHeritage: { type: Type.STRING },
+            primaryLanguage: { type: Type.STRING }
+          }
+        }
+      }
+    });
+
+    if (response.text) {
+      let raw = response.text;
+      if (typeof raw === "function") raw = (raw as any)();
+      raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
+      return JSON.parse(raw);
+    }
+  } catch (error) {
+    console.error("Failed to harvest demographics:", error);
+  }
+  return {};
+}
+

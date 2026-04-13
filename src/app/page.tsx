@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, embedAndUpsertToPineconeAction, deletePineconeSourceAction, deleteAllPineconeResourcesAction, recompileStoriesWithContactsAction, reduceDashboardOverviewAction } from "./actions";
-import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/firebase/db";
+import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, saveQuestionBankItem, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/firebase/db";
 import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview } from "@/lib/rag";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -187,6 +187,13 @@ export default function Home() {
         const updatedStories = await reduceHighFidelityStoriesAction(currentStories, rawMappedStories, undefined, relationalContext);
         await saveHighFidelityStories(user.uid, updatedStories);
 
+        // Auto-Harvest Gap Prompts into Question Bank
+        for (const story of updatedStories) {
+           if (story.gapPrompt) {
+              await saveQuestionBankItem(user.uid, { text: story.gapPrompt, source: 'gap_prompt', storyId: story.id });
+           }
+        }
+
         // Auto-Harvest Contacts
         const existingNames = new Set(loadedUserContacts.flatMap(c => [c.originalName, c.completeName, ...(c.aliases || [])]));
         const discoveredNames = new Set<string>();
@@ -292,6 +299,13 @@ export default function Home() {
              setSynopsis(activeState.synopsis);
              setWisdomSummaries(activeState.wisdom);
              setQuestions(activeState.questions);
+             
+             // Bank the Dashboard Questions
+             if (activeState.questions) {
+                 for (const q of activeState.questions) {
+                     await saveQuestionBankItem(user.uid, { text: q, source: 'dashboard' });
+                 }
+             }
           }
       }
 
@@ -485,6 +499,7 @@ export default function Home() {
       <AnimatePresence>
         {isInterviewerOpen && user && (
           <InterviewerModal 
+            userId={user.uid}
             onClose={() => setIsInterviewerOpen(false)} 
             onSave={async (transcript) => {
               const enrichedTranscript = `--- METADATA ---\nSOURCE: Legacy Nexus Active AI Interface Interview\nINTERVIEWER: Legacy Nexus AI\nDATE: ${new Date().toISOString().split('T')[0]}\n--- TRANSCRIPT ---\n\n${transcript}`;
@@ -861,35 +876,21 @@ export default function Home() {
       <AnimatePresence>
         {isProcessing && (
           <motion.div 
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            className="fixed bottom-0 left-0 right-0 z-[100] bg-indigo-600 text-white p-4 shadow-2xl border-t border-indigo-400"
+            initial={{ scale: 0.9, y: 20, opacity: 0 }}
+            animate={{ scale: 1, y: 0, opacity: 1 }}
+            exit={{ scale: 0.9, y: 20, opacity: 0 }}
+            className="fixed bottom-6 right-6 z-[100] bg-white dark:bg-zinc-900 p-3 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 flex items-center gap-3 backdrop-blur-md"
           >
-            <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <Loader2 className="animate-spin text-indigo-200" size={24} />
-                <div>
-                  <h4 className="font-bold">
-                     {dashboardProgress ? `Synthesizing Vault Context (${dashboardProgress.current}/${dashboardProgress.total})` : "Synthesizing Vault Context"}
-                  </h4>
-                  <p className="text-sm text-indigo-200">
-                     {dashboardProgress && dashboardProgress.etaSeconds > 0 
-                         ? `Estimated time remaining: ${dashboardProgress.etaSeconds}s`
-                         : "The AI is currently processing your data. Please do not close or refresh this page."}
-                  </p>
-                </div>
-              </div>
+            <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center shrink-0">
+               <Loader2 className="animate-spin text-purple-600 dark:text-purple-400" size={16} />
             </div>
-            <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500 overflow-hidden">
-               {dashboardProgress ? (
-                   <div 
-                      className="h-full bg-indigo-200 transition-all duration-1000" 
-                      style={{ width: `${(dashboardProgress.current / dashboardProgress.total) * 100}%` }} 
-                   />
-               ) : (
-                   <div className="h-full bg-indigo-300 w-full animate-pulse" />
-               )}
+            <div className="flex flex-col pr-2">
+              <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200 leading-tight">Synthesizing Context</span>
+              <span className="text-[11px] text-zinc-500 font-medium leading-none mt-1">
+                 {dashboardProgress && dashboardProgress.etaSeconds > 0 
+                     ? `Chunk ${dashboardProgress.current}/${dashboardProgress.total} • ${dashboardProgress.etaSeconds}s remaining`
+                     : "Updating local timeline..."}
+              </span>
             </div>
           </motion.div>
         )}
