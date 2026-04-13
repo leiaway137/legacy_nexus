@@ -516,7 +516,8 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
               peopleMentioned: {
                 type: Type.ARRAY,
                 items: { type: Type.STRING }
-              }
+              },
+              gapPrompt: { type: Type.STRING, nullable: true }
             },
             required: ["id", "era", "title", "synopsis", "psychometrics", "rubric", "peopleMentioned"]
           }
@@ -675,7 +676,8 @@ export async function recompileHighFidelityStories(cachedStories: HighFidelitySt
     1. Read the existing stories.
     2. Normalize ALL mentions inside the 'title' and 'synopsis' fields strictly following the Identity Map provided below. Replace all invalid aliases with the canonical 'Complete Name'.
     3. Update the 'peopleMentioned' string array to reflect only the canonical names.
-    4. Do not alter 'id', 'era', 'psychometrics', or 'rubric' - JUST normalize the textual names.
+    4. Do not alter 'id', 'era', 'psychometrics', or 'rubric'.
+    5. CRITICAL GAP PROMPT BACKFILL: If an existing story is missing an explicit 'gapPrompt' OR if its current extraction is weak (depthLevel <= 1), you MUST actively backfill and generate a highly customized 'gapPrompt' that challenges the narrator to find the overarching moral lesson. Directly reference the specific literal events and canonical names from the synopsis. Do NOT use generic/repetitive language.
     
     CRITICAL RELATIONAL CONTEXT: Normalize to this Identity Map: ${relationalContext}
     
