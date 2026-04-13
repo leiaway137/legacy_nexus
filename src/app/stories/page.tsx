@@ -488,7 +488,7 @@ export default function StoriesPage() {
                     }
 
                     return (
-              <div key={story.id || i} className="relative pl-20 md:pl-[210px]">
+              <div key={`${story.id}-${i}`} className="relative pl-20 md:pl-[210px]">
                 
                 {/* Timeline Dot */}
                 <div className={dotClass}>
@@ -701,7 +701,7 @@ export default function StoriesPage() {
 
                   return timeless.map((story, i) => (
                   <motion.div 
-                    key={story.id || i}
+                    key={`${story.id}-${i}`}
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
                     className="bg-zinc-50 dark:bg-[#1a1a1a] rounded-3xl p-6 border border-zinc-200 dark:border-zinc-800 shadow-sm relative overflow-hidden group hover:border-amber-500/30 transition-colors"
