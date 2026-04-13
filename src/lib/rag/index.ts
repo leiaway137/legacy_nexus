@@ -435,6 +435,7 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
        - 'narrative_complexity' (1-5 scale): How intricate is the sequence of events and decision making?
        - 'duration_weight' (1.0 to 2.0 scale): Evaluate the raw verbosity and detail of this specific event in the transcript. 1.0 for brief mentions, 1.5 for dedicated paragraphs, 2.0 for exhaustive, multi-paragraph sagas.
     9. Extract any unique names of people explicitly mentioned in the story into the 'peopleMentioned' string array.
+    10. 'gapPrompt': If this story lacks a mature extraction ('present' is false or 'depthLevel' <= 1), generate a highly customized, unique question about this SPECIFIC story that challenges the narrator to find the overarching moral lesson. Do NOT use generic/repetitive language formatting. Directly reference the specific names and concrete events of this story to formulate a probing question bridging the literal event to a universal truth.
     ${relationalContext ? `CRITICAL RELATIONAL CONTEXT: Normalize and refer to individuals using the following Identity Map when generating synopses and labels: ${relationalContext}` : ''}
 
     Extract 1 to 3 highly granular, profoundly distinct thematic events from this specific chunk of text. Do NOT lazily merge multiple life events into a single generalized card. Demand granularity. Do not hallucinate events that are not explicitly in the text.
@@ -556,8 +557,8 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
     Your task:
     1. Read the newly extracted raw stories.
     2. Determine if the events described in the raw stories fall into the context of any EXISTING stories.
-       - If YES: MERGE them. UPDATE the existing story. You can rewrite the 'synopsis' to include the new robust details, drastically update the 'psychometrics' based on the newly merged context, and update the 'rubric' booleans. Remove the 'gapPrompt' if 'extraction' becomes true.
-       - If NO: CREATE entirely new story objects and APPEND them to the array. Do not lazily summarize them; preserve their granularity.
+       - If YES: MERGE them. UPDATE the existing story. You can rewrite the 'synopsis' to include the new robust details, drastically update the 'psychometrics' based on the newly merged context, and update the 'rubric' booleans. Remove the 'gapPrompt' if 'extraction' becomes true. If 'extraction' remains false, completely REWRITE the 'gapPrompt' to explicitly reference the newly synthesized narrative details and ask a highly specific, penetrating question to prompt the narrator for a deeper moral lesson.
+       - If NO: CREATE entirely new story objects and APPEND them to the array. Do not lazily summarize them; preserve their granularity. If 'extraction' is false, generate a highly specific, context-aware 'gapPrompt' referencing literal story events.
     3. Ensure ALL stories (existing and new) strictly adhere to the previously defined format. 
        - 'era' MUST strictly be "Childhood", "Teens", "Twenties", "Thirties", "Forties", "Fifties+", or "Timeless" (Use "Timeless" for generic themes, recipes, and life philosophies).
     4. LINGUISTIC CORRECTIONS: The narrator's cultural heritage/language background is: ${culturalContext || "Unknown"}. If the synopses contain phonetically misspelled foreign words, intelligently deduce the intended word and log it to 'linguisticCorrections'.

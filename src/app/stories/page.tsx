@@ -653,10 +653,13 @@ export default function StoriesPage() {
                              Narrative Gap Detected <span className="bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 px-2 py-0.5 rounded text-[10px] uppercase tracking-wider">AI Interruption</span>
                           </h4>
                           <p className="text-sm text-red-800 dark:text-red-300/80 leading-relaxed font-medium">
-                            {story.extraction?.depthLevel === 1 
-                              ? `You mentioned a surface-level lesson. If you were telling this to a grandchild, how would you explain the deeper 'why' behind that?` 
-                              : `This story has a lot of tension, but the lesson feels hidden. Looking back, how did this structural shift change your perspective?`
-                            }
+                            {story.gapPrompt ? (
+                              story.gapPrompt
+                            ) : (
+                              story.extraction?.depthLevel === 1 
+                                ? `You mentioned a surface-level lesson. If you were telling this to a grandchild, how would you explain the deeper 'why' behind that?` 
+                                : `This story has a lot of tension, but the lesson feels hidden. Looking back, how did this structural shift change your perspective?`
+                            )}
                           </p>
                           <div className="mt-4 flex gap-3">
                             <button className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors">
