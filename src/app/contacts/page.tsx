@@ -135,33 +135,53 @@ export default function ContactsPage() {
     }
   };
 
+  const [syncStatus, setSyncStatus] = useState<string>("Aligning...");
+
   const handleBulkCommit = async () => {
     if (!user) return;
     setIsCommitingBulk(true);
+    setSyncStatus("Fetching existing timeline...");
     try {
       const currentStories = await fetchHighFidelityStories(user.uid);
+      if (!currentStories) throw new Error("Firebase returned undefined for currentStories");
+      
       const relationalContext = "Identity Map & Relationships: " + contacts.map(c => 
           `'${c.originalName}', '${c.aliases.join("', '")}' -> ${c.completeName}` + 
           (c.relationship ? ` (Relationship to narrator: ${c.relationship})` : '')
       ).join(" | ");
+      
       const batchSize = 1;
       let updatedStories: any[] = [];
+      const totalBlocks = Math.ceil(currentStories.length / batchSize);
+      
       for (let i = 0; i < currentStories.length; i += batchSize) {
+         const currentBlock = Math.floor(i / batchSize) + 1;
+         setSyncStatus(`Aligning Timeline (${currentBlock}/${totalBlocks})...`);
+         
          const batch = currentStories.slice(i, i + batchSize);
-         const resBatch = await recompileStoriesWithContactsAction(batch, relationalContext);
-         updatedStories = [...updatedStories, ...resBatch];
+         try {
+            const resBatch = await recompileStoriesWithContactsAction(batch, relationalContext);
+            updatedStories = [...updatedStories, ...(resBatch || batch)];
+         } catch (batchErr: any) {
+            throw new Error(`Server Action failed on block ${currentBlock}: ${batchErr.message || String(batchErr)}`);
+         }
+         
          if (i + batchSize < currentStories.length) {
-            await new Promise(res => setTimeout(res, 2500)); // Rate limit buffer
+            await new Promise(res => setTimeout(res, 2000));
          }
       }
       
-      await saveHighFidelityStories(user.uid, updatedStories);
+      setSyncStatus("Saving updated timeline to Firebase...");
+      const saved = await saveHighFidelityStories(user.uid, updatedStories);
+      if (!saved) throw new Error("Firebase save transaction rejected the write.");
+      
       alert("Timeline successfully realigned using the Address Book details!");
     } catch(err: any) {
       console.error(err);
-      alert("Failed to commit timeline changes: " + (err instanceof Error ? err.message : String(err)));
+      alert("CRASH: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsCommitingBulk(false);
+      setSyncStatus("Aligning...");
     }
   };
 
@@ -268,7 +288,7 @@ export default function ContactsPage() {
              </button>
              <button disabled={isCommitingBulk || contacts.length === 0} onClick={handleBulkCommit} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50">
                {isCommitingBulk ? <Loader2 className="animate-spin" size={14}/> : <RefreshCw size={14}/>}
-               {isCommitingBulk ? "Aligning..." : "Commit Ties to Timeline"}
+               {isCommitingBulk ? syncStatus : "Commit Ties to Timeline"}
              </button>
          </div>
       </header>
