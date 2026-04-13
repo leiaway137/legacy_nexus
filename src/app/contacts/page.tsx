@@ -144,8 +144,17 @@ export default function ContactsPage() {
           `'${c.originalName}', '${c.aliases.join("', '")}' -> ${c.completeName}` + 
           (c.relationship ? ` (Relationship to narrator: ${c.relationship})` : '')
       ).join(" | ");
+      const batchSize = 4;
+      let updatedStories: any[] = [];
+      for (let i = 0; i < currentStories.length; i += batchSize) {
+         const batch = currentStories.slice(i, i + batchSize);
+         const resBatch = await recompileStoriesWithContactsAction(batch, relationalContext);
+         updatedStories = [...updatedStories, ...resBatch];
+         if (i + batchSize < currentStories.length) {
+            await new Promise(res => setTimeout(res, 2500)); // Rate limit buffer
+         }
+      }
       
-      const updatedStories = await recompileStoriesWithContactsAction(currentStories, relationalContext);
       await saveHighFidelityStories(user.uid, updatedStories);
       alert("Timeline successfully realigned using the Address Book details!");
     } catch(err) {
