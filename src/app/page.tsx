@@ -374,7 +374,7 @@ export default function Home() {
   const handleChatSubmit = async (e?: React.FormEvent, presetMessage?: string) => {
     e?.preventDefault();
     const msg = presetMessage || chatInput;
-    if (!msg.trim() || isChatting || sources.length === 0) return;
+    if (!msg.trim() || isChatting || sources.length === 0 || !user) return;
 
     const newUserMsg = { role: "user", text: msg };
     const newHistory = [...chatMessages, newUserMsg];
