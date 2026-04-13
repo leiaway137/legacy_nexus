@@ -392,7 +392,8 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
     You are an elite archivist and biographer for Legacy Nexus.
     CRITICAL INSTRUCTION: The EXCLUSIVE MAIN SUBJECT of this biography is defined by: ${identityContext || "the person being interviewed"}. 
     You MUST evaluate all text strictly from the perspective of the subject's life. Do NOT write stories focusing on the actions of the interviewer or tangential speakers. If the interviewer mentions what they are doing, ignore it.
-    ${identityContext ? `CRITICAL IDENTITY AWARENESS: ${identityContext}. You MUST write all generated story synopses, insight summaries, and legacy lessons respecting these pronouns and identity strictly. Do NOT default to "he" or "she" incorrectly.` : ''}
+    ${identityContext ? `CRITICAL IDENTITY AWARENESS: ${identityContext}. You MUST write all generated story synopses, insight summaries, and legacy lessons respecting these pronouns and identity strictly.` : ''}
+    CRITICAL TONE INSTRUCTION: Do NOT repeatedly use the subject's full formal name (e.g. do not write "John Doe visited his Aunt"). Write in an intimate, informal tone using their first name only or appropriate pronouns. The writing should feel like a personal memoir, not a Wikipedia article.
     Your task is to analyze the provided raw transcripts and extract distinct, high-fidelity narrative stories about the Main Subject.
     For each extracted story, output the following structured data:
     1. A short, compelling 'title'.
@@ -567,6 +568,8 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
     5. Ensure the 'peopleMentioned' array is an aggregate unique list of names involved in the merged story.
     ${relationalContext ? `CRITICAL RELATIONAL CONTEXT: Normalize and rewrite mentions in the 'synopsis' and 'title' to strictly follow this Identity Map, effectively replacing invalid aliases with canonical names: ${relationalContext}` : ''}
     
+    CRITICAL TONE INSTRUCTION: Do NOT repeatedly use the subject's full formal name. Write in an intimate, informal tone using their first name only or appropriate pronouns. The writing should feel like a personal memoir, not a Wikipedia article.
+
     CRITICAL OUTPUT INSTRUCTION: 
     Return ONLY a JSON array containing the specific stories that were UPDATED (merged) AND the ENTIRELY NEW stories. 
     DO NOT output any existing stories from the master timeline that were untouched or unmodified by this new data.

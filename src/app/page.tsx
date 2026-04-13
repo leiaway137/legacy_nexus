@@ -122,7 +122,7 @@ export default function Home() {
     const rawMappedStories: HighFidelityStory[] = [];
 
     const profile = await fetchUserProfile(user.uid);
-    const subjectName = profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() : (user.displayName || "the user");
+    const subjectName = profile?.firstName || (user.displayName ? user.displayName.split(" ")[0] : "the user");
 
     // Process and extract to Firebase Persistence sequentially
     for (const file of files) {
