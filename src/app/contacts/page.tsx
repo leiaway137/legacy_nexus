@@ -144,7 +144,7 @@ export default function ContactsPage() {
           `'${c.originalName}', '${c.aliases.join("', '")}' -> ${c.completeName}` + 
           (c.relationship ? ` (Relationship to narrator: ${c.relationship})` : '')
       ).join(" | ");
-      const batchSize = 4;
+      const batchSize = 1;
       let updatedStories: any[] = [];
       for (let i = 0; i < currentStories.length; i += batchSize) {
          const batch = currentStories.slice(i, i + batchSize);
@@ -159,7 +159,7 @@ export default function ContactsPage() {
       alert("Timeline successfully realigned using the Address Book details!");
     } catch(err) {
       console.error(err);
-      alert("Failed to commit timeline changes.");
+      alert("Failed to commit timeline changes: " + String(err?.message || err));
     } finally {
       setIsCommitingBulk(false);
     }
