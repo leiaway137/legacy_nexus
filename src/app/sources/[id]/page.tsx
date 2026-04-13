@@ -118,7 +118,7 @@ export default function SourceViewerPage() {
       }
       // If it's a React element, clone it and process its children
       if (typeof children === 'object' && children !== null && 'props' in (children as any)) {
-          const el = children as React.ReactElement;
+          const el = children as React.ReactElement<any, any>;
           if (el.props.children) {
              return React.cloneElement(el, { ...el.props }, renderWithHighlights(el.props.children));
           }
