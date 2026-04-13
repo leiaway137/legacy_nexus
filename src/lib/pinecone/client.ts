@@ -8,4 +8,4 @@ export const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY,
 });
 
-export const getPineconeIndex = () => pinecone.Index('legacy-nexus');
+export const getPineconeIndex = () => pinecone.Index(process.env.PINECONE_INDEX || 'legacy-nexus');
