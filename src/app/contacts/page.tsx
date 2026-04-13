@@ -157,9 +157,9 @@ export default function ContactsPage() {
       
       await saveHighFidelityStories(user.uid, updatedStories);
       alert("Timeline successfully realigned using the Address Book details!");
-    } catch(err) {
+    } catch(err: any) {
       console.error(err);
-      alert("Failed to commit timeline changes: " + String(err?.message || err));
+      alert("Failed to commit timeline changes: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsCommitingBulk(false);
     }
