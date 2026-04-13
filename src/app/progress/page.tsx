@@ -256,9 +256,11 @@ export default function ProgressPage() {
                        <h3 className="text-lg font-bold text-white mb-3">
                           {deepDive.title}
                        </h3>
-                       <p className="text-sm text-zinc-300 leading-relaxed mb-5 italic border-l-2 border-zinc-600 pl-3">
-                          "{deepDive.analysis}"
-                       </p>
+                       <div className="text-sm text-zinc-300 leading-relaxed mb-6 border-l-2 border-zinc-600 pl-4 max-h-[400px] overflow-y-auto no-scrollbar prose prose-sm prose-invert max-w-none">
+                          <ReactMarkdown>
+                             {deepDive.analysis}
+                          </ReactMarkdown>
+                       </div>
                        
                        <div className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-700/50">
                           <p className="text-xs font-medium text-emerald-400 mb-2 flex items-center gap-1.5">

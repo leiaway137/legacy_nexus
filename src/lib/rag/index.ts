@@ -882,22 +882,22 @@ export async function generateLegacyDeepDive(
   exampleStoryContext?: string
 ): Promise<{ title: string; analysis: string; prompt: string }> {
   const prompt = `
-    You are the "Architect Philosopher" for Legacy Nexus. You are evaluating a user's life archive.
-    You have detected a structural friction pattern in their life story. 
+    You are an elite, deeply empathetic biographer and psychological "Architect" evaluating a user's life archive.
+    You have detected a critical structural narrative tension in their life story. 
     
     Data:
-    - Their dominant personality trait across all stories is: ${dominantTrait}
-    - However, their ${flaw} (either "Extraction/Lessons Learned" or "Conflict Resolution") rate is dangerously low: only ${Math.round(flawScore * 100)}%.
-    - A defining narrative memory from their life is titled "${exampleStoryTitle}". 
-    - The actual events of that memory: ${exampleStoryContext || "(No memory context provided)"}
+    - Broad Category Pattern: ${dominantTrait}
+    - Frictional Weakness (${flaw}): only ${Math.round(flawScore * 100)}% structural representation in their stories.
+    - Specifically, a defining narrative memory from their life is titled "${exampleStoryTitle}". 
+    - The actual literal events of that memory: ${exampleStoryContext || "(No memory context provided)"}
 
-    CRITICAL INSTRUCTION: Do NOT write generic, fortune-cookie philosophy. You MUST explicitly reference the tangible people, physical events, and literal occurrences described in the memory context above.
-    
-    Your task is to write a deeply empathetic but sharp "Cross-Metric Insight".
+    CRITICAL RULE: DO NOT assign them a generic "archetype", "Holland Code", or fortune-cookie title like "The Titan" or "The Social Navigator". Their life is far more complex than a label. Do not use paradoxical titles.
+
+    Your task is to write a deeply personalized, beautiful "Architect Observation" regarding this structural tension.
     You must output JSON with exactly three fields:
-    1. "title": A paradoxical title (e.g., "The Paradox of the Titan", "The Unresolved Empath").
-    2. "analysis": A 2-3 sentence observation pointing out the friction between their massive ${dominantTrait} actions but their lack of ${flaw}. You MUST explicitly cite specific actions or events from the "${exampleStoryTitle}" memory to prove your point.
-    3. "prompt": A gentle but profound question challenging them to reflect on the human cost or internal reality of the specific events in "${exampleStoryTitle}". Do not ask a broad question; anchor it in the specific memory.
+    1. "title": A beautiful, literal title derived directly from the specific events in the story (e.g., "The Weight of the Departure", "Silence During the Storm"). Do NOT use archetypes.
+    2. "analysis": A stunning, deeply detailed 5-to-10 paragraph psychological essay. You MUST use markdown paragraphs (separated by double newlines). Dive extremely deep into the dissonance between their outward actions (as described in the event) and their profound internal timeline. Explicitly cite specific people, places, and actions from the "${exampleStoryTitle}" memory. Write like a master biographer analyzing an incredible life. Do NOT use abstract metaphors.
+    3. "prompt": A sharp, gentle, but profound challenge question (1 paragraph). Challenge them to finally reflect on the internal realities and unspoken costs of the absolute specific events in "${exampleStoryTitle}". Anchor it exclusively in the memory.
 
     Output strict JSON format.
   `;
