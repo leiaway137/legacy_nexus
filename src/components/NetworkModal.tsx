@@ -322,7 +322,7 @@ export function NetworkModal({ userId, onClose, onContactsUpdated, contacts: ini
                                 </span>
                              )}
                            </h3>
-                           {contact.linkedAccountId && <ShieldCheck size={18} className="text-emerald-500 flex-shrink-0" title="Verified Nexus User"/>}
+                           {contact.linkedAccountId && <span title="Verified Nexus User"><ShieldCheck size={18} className="text-emerald-500 flex-shrink-0" /></span>}
                          </div>
                          <div className="text-xs text-zinc-500 mb-2">
                             Extracted as: <span className="font-mono text-zinc-600 dark:text-zinc-400 text-[11px] bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">{contact.originalName}</span>

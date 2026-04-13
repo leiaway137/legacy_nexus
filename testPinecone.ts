@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import { Pinecone } from "@pinecone-database/pinecone";
 import * as dotenv from "dotenv";
 dotenv.config({ path: "/Users/leiaway/Antigravity/Legacy Nexus/.env.local" });

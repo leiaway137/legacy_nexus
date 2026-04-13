@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import { extractHighFidelityStories } from "./src/lib/rag/index.js";
 import dotenv from "dotenv";
 

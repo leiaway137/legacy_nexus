@@ -382,7 +382,7 @@ export interface HighFidelityStory {
   };
   gapPrompt?: string;
   linguisticCorrections?: { original: string; guess: string; meaning: string }[];
-  peopleMentioned: string[];
+  peopleMentioned?: string[];
 }
 
 export async function extractHighFidelityStories(transcriptContext: string, culturalContext?: string, relationalContext?: string, identityContext?: string): Promise<HighFidelityStory[]> {

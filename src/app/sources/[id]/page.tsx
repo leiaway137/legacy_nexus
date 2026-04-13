@@ -167,7 +167,7 @@ export default function SourceViewerPage() {
 
       lines.forEach(line => {
           // Attempt to extract speaker name if it strictly starts with "Speaker:" or "**Speaker**:"
-          const match = line.match(/^(\*\*?[^*:]+\*\*?|[^:]+):\s*(.*)/s);
+          const match = line.match(/^(\*\*?[^*:]+\*\*?|[^:]+):\s*(.*)/);
           if (match && match[1].length < 35) { // Limit speaker name length to prevent accidental sentence matching
              currentSpeaker = match[1].replace(/\*/g, '').trim(); 
              blocks.push({ speaker: currentSpeaker, message: match[2].trim() });

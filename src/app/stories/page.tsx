@@ -262,7 +262,7 @@ export default function StoriesPage() {
         // 1. Generate Global Stats
         const globalData = computeCentroidMath(RECOGNIZED_ERAS[0], currentCache);
         const globalCtx = await generateLegacyIdentityAction(globalData.archetype.primaryRiasec, globalData.archetype.secondaryRiasec, globalData.archetype.extraction, globalData.archetype.title);
-        globalData.archetype.context = globalCtx;
+        (globalData.archetype as any).context = globalCtx;
 
         const insightsPackage: any = {
            allTime: globalData.archetype,
@@ -298,7 +298,8 @@ export default function StoriesPage() {
               crossPattern.dominantTrait,
               crossPattern.flaw,
               crossPattern.flawScore,
-              crossPattern.exampleStoryTitle
+              crossPattern.exampleStoryTitle,
+              (crossPattern as any).exampleStoryContext || ""
            );
            insightsPackage.deepDive = {
               ...crossPattern,
@@ -384,7 +385,7 @@ export default function StoriesPage() {
                         
                         const globalData = computeCentroidMath(RECOGNIZED_ERAS[0], currentCache);
                         const globalCtx = await generateLegacyIdentityAction(globalData.archetype.primaryRiasec, globalData.archetype.secondaryRiasec, globalData.archetype.extraction, globalData.archetype.title);
-                        globalData.archetype.context = globalCtx;
+                        (globalData.archetype as any).context = globalCtx;
 
                         const insightsPackage: any = { allTime: globalData.archetype, eras: {} };
 
