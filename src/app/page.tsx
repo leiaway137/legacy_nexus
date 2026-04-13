@@ -195,9 +195,8 @@ export default function Home() {
               if (!existingNames.has(name)) discoveredNames.add(name);
            });
         });
-        
         for (const name of discoveredNames) {
-           await saveContact(user.uid, { originalName: name, completeName: name, aliases: [], email: "", linkedAccountId: "" } as Contact);
+           await saveContact(user.uid, { originalName: name, completeName: name, aliases: [], email: "", linkedAccountId: "" } as unknown as Contact);
         }
         if (discoveredNames.size > 0) setContacts(await fetchContacts(user.uid));
 
