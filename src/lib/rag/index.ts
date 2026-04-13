@@ -380,6 +380,7 @@ export interface HighFidelityStory {
     narrative_complexity: number;
     duration_weight: number;
   };
+  gapPrompt?: string;
   linguisticCorrections?: { original: string; guess: string; meaning: string }[];
   peopleMentioned: string[];
 }
