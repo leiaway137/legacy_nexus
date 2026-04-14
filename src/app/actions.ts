@@ -1,6 +1,6 @@
 "use server";
 
-import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive, extractDemographicsFromTranscript } from "@/lib/rag";
+import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive, extractDemographicsFromTranscript, generateSandersonAdaptation, generatePodcastTranscript } from "@/lib/rag";
 import { getPineconeIndex } from "@/lib/pinecone/client";
 // @ts-ignore - Bypass Turbopack static ESM export resolution
 import pdfParseModule from "pdf-parse/lib/pdf-parse.js";
@@ -29,6 +29,16 @@ export async function generateQuestionsAction(context: string): Promise<string[]
     return [];
   }
 }
+
+export async function generatePodcastTranscriptAction(context: string, focusArea: string, durationOption: string): Promise<{speaker: "Host 1" | "Host 2", text: string}[]> {
+  try {
+    return await generatePodcastTranscript(context, focusArea, durationOption);
+  } catch (error) {
+    console.error("Failed to generate podcast:", error);
+    return [];
+  }
+}
+
 
 export async function reduceDashboardOverviewAction(currentOverview: DashboardOverview | null, newTranscript: string, mainSubjectName?: string): Promise<DashboardOverview | null> {
   try {
@@ -67,43 +77,44 @@ export async function uploadAndExtractAction(formData: FormData): Promise<string
   }
 }
 
-export async function embedAndUpsertToPineconeAction(userId: string, sourceId: string, text: string): Promise<boolean> {
+export async function embedStoriesToPineconeAction(userId: string, sourceId: string, stories: HighFidelityStory[]): Promise<boolean> {
   try {
     const index = getPineconeIndex();
-    
-    // 0. Autonomously deduce the relational perspective of this specific document
-    const perspectiveTag = await identifyDocumentPerspective(text);
-    console.log(`[RAG Metadata Injection] Extracted Perspective: ${perspectiveTag}`);
-    
-    // 1. Simple chunking strategy (split by double newlines or roughly 1000 characters)
-    const rawChunks = text.split(/\n\s*\n/).filter(c => c.trim().length > 50);
     const vectors = [];
     
-    // Batch process in chunks of 50 to avoid any Gemini API payload maximum limits and 15 RPM bottleneck
     const BATCH_LIMIT = 50;
-    for (let i = 0; i < rawChunks.length; i += BATCH_LIMIT) {
-        const batchTexts = rawChunks.slice(i, i + BATCH_LIMIT);
+    for (let i = 0; i < stories.length; i += BATCH_LIMIT) {
+        const batchStories = stories.slice(i, i + BATCH_LIMIT);
+        
+        const batchTexts = batchStories.map(story => {
+           let baseText = `[Legacy Entry]\nTitle: ${story.title}\nEra: ${story.era}\nSynopsis: ${story.synopsis}\nLegacy Lesson: ${story.extraction.legacyLesson}\nThemes: ${story.psychometrics.map(p => `${p.label} (${p.val})`).join(', ')}\nPeople Mentioned: ${(story.peopleMentioned || []).join(', ')}`;
+           if (story.linguisticCorrections && story.linguisticCorrections.length > 0) {
+               baseText += `\nTranslations: ${story.linguisticCorrections.map(c => `Original audio '${c.original}' likely means '${c.guess}' (${c.meaning})`).join(' | ')}`;
+           }
+           return baseText;
+        });
+        
         const embeddedBatches = await generateBatchTextMappings(batchTexts);
         
         for (let j = 0; j < embeddedBatches.length; j++) {
             const embeddingData = embeddedBatches[j];
             if (embeddingData && embeddingData.length === 3072) {
                vectors.push({
-                  id: `${sourceId}-chunk-${i + j}`,
+                  id: `story-${batchStories[j].id}`,
                   values: embeddingData,
                   metadata: {
                      text: batchTexts[j],
                      sourceId: sourceId,
-                     perspective: perspectiveTag
+                     era: batchStories[j].era,
+                     perspective: "Synthesized Legacy Content"
                   }
                });
             }
         }
     }
     
-    // 2. Upsert vectors in batches to Pinecone using the userId as a security namespace!
+    // Upsert vectors in batches to Pinecone using the userId as a security namespace!
     if (vectors.length > 0) {
-       // Pinecone upsert limit is usually 100 per API request
        const batchSize = 100;
        for (let i = 0; i < vectors.length; i += batchSize) {
           const batch = vectors.slice(i, i + batchSize);
@@ -113,43 +124,12 @@ export async function embedAndUpsertToPineconeAction(userId: string, sourceId: s
     
     return true;
   } catch (error) {
-    console.error("Failed to embed and upsert to Pinecone:", error);
+    console.error("Failed to embed stories and upsert to Pinecone:", error);
     return false;
   }
 }
 
-export async function deletePineconeSourceAction(userId: string, sourceId: string): Promise<boolean> {
-  try {
-    const index = getPineconeIndex();
-    const ns = index.namespace(userId);
-    
-    // Pinecone Serverless DOES NOT support deleting by metadata filter natively (404 Error).
-    // We must paginate through the namespace using the secure ID prefix and delete explicitly by IDs.
-    let paginationToken = undefined;
-    
-    // Safety break to prevent infinite loops
-    let pages = 0;
-    
-    do {
-       //@ts-ignore - dynamic properties
-       const results = await ns.listPaginated({ prefix: sourceId, paginationToken });
-       
-       if (results && results.vectors && results.vectors.length > 0) {
-           const idsToDelete = results.vectors.map(v => v.id);
-           await ns.deleteMany(idsToDelete);
-       }
-       
-       paginationToken = results?.pagination?.next;
-       pages++;
-    } while (paginationToken && pages < 100);
-    
-    console.log(`[Pinecone GC] Scrubbed all vectors for source: ${sourceId}`);
-    return true;
-  } catch (error) {
-    console.error("Failed to delete from Pinecone:", error);
-    return false;
-  }
-}
+
 
 export async function deleteAllPineconeResourcesAction(userId: string): Promise<boolean> {
   try {
@@ -261,4 +241,12 @@ export async function extractDemographicsAction(transcript: string): Promise<Rec
     console.error("Failed to extract demographics:", error);
     return {};
   }
+}
+
+export async function generateSandersonChapterAction(story: HighFidelityStory, editorialNotes?: string): Promise<string> {
+  return await generateSandersonAdaptation(story, editorialNotes);
+}
+
+export async function deletePineconeSourceAction(userId: string, sourceId: string): Promise<boolean> {
+  return true;
 }

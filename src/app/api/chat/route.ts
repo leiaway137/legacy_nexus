@@ -5,7 +5,7 @@ import { getPineconeIndex } from '@/lib/pinecone/client';
 export const dynamic = 'force-dynamic';
 export async function POST(req: Request) {
   try {
-    const { userId, question, history, linguisticContext, relationalContext } = await req.json();
+    const { userId, question, history, linguisticContext, relationalContext, systemOverrides } = await req.json();
 
     if (!userId || !question) {
        return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
        .filter(text => text.length > 0)
        .join("\n\n---\n\n");
 
-    const stream = await chatWithLegacyStream(dynamicContext, question, history || [], linguisticContext, relationalContext);
+    const stream = await chatWithLegacyStream(dynamicContext, question, history || [], linguisticContext, relationalContext, systemOverrides);
     
     // Return a streaming response back to the client natively!
     return new Response(stream, {

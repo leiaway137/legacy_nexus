@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, User, Mail, ShieldCheck, Phone, Edit3, Trash2, Search, Upload, RefreshCw, Loader2, Quote, Sparkles } from "lucide-react";
+import { ArrowLeft, User, Mail, ShieldCheck, Phone, Edit3, Trash2, Search, Upload, RefreshCw, Loader2, Quote, Sparkles, Star } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
+import { useBackgroundJobs } from "@/components/BackgroundJobProvider";
 import { fetchContacts, saveContact, deleteContact, fetchUserSources, Contact, NotebookSource } from "@/lib/firebase/db";
 import { parseCSV, parseVCF, correlateContacts } from "@/lib/contacts";
 import { fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/firebase/db";
@@ -28,6 +29,7 @@ const getContextSnippet = (sources: NotebookSource[] | undefined, name: string):
 
 export default function ContactsPage() {
   const { user, loading } = useAuth();
+  const { startJob } = useBackgroundJobs();
   
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [sources, setSources] = useState<NotebookSource[]>([]);
@@ -137,52 +139,49 @@ export default function ContactsPage() {
 
   const [syncStatus, setSyncStatus] = useState<string>("Aligning...");
 
-  const handleBulkCommit = async () => {
+  const handleBulkCommit = () => {
     if (!user) return;
-    setIsCommitingBulk(true);
-    setSyncStatus("Fetching existing timeline...");
-    try {
-      const currentStories = await fetchHighFidelityStories(user.uid);
-      if (!currentStories) throw new Error("Firebase returned undefined for currentStories");
-      
-      const relationalContext = "Identity Map & Relationships: " + contacts.map(c => 
-          `'${c.originalName}', '${c.aliases.join("', '")}' -> ${c.completeName}` + 
-          (c.relationship ? ` (Relationship to narrator: ${c.relationship})` : '')
-      ).join(" | ");
-      
-      const batchSize = 1;
-      let updatedStories: any[] = [];
-      const totalBlocks = Math.ceil(currentStories.length / batchSize);
-      
-      for (let i = 0; i < currentStories.length; i += batchSize) {
-         const currentBlock = Math.floor(i / batchSize) + 1;
-         setSyncStatus(`Aligning Timeline (${currentBlock}/${totalBlocks})...`);
-         
-         const batch = currentStories.slice(i, i + batchSize);
-         try {
-            const resBatch = await recompileStoriesWithContactsAction(batch, relationalContext);
-            updatedStories = [...updatedStories, ...(resBatch || batch)];
-         } catch (batchErr: any) {
-            throw new Error(`Server Action failed on block ${currentBlock}: ${batchErr.message || String(batchErr)}`);
-         }
-         
-         if (i + batchSize < currentStories.length) {
-            await new Promise(res => setTimeout(res, 2000));
-         }
-      }
-      
-      setSyncStatus("Saving updated timeline to Firebase...");
-      const saved = await saveHighFidelityStories(user.uid, updatedStories);
-      if (!saved) throw new Error("Firebase save transaction rejected the write.");
-      
-      alert("Timeline successfully realigned using the Address Book details!");
-    } catch(err: any) {
-      console.error(err);
-      alert("CRASH: " + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setIsCommitingBulk(false);
-      setSyncStatus("Aligning...");
-    }
+    
+    // Fire and forget the background job. UI immediately frees up.
+    startJob("Aligning Timeline", async (updateProgress) => {
+        updateProgress("Fetching existing timeline...", 0, 100);
+        const currentStories = await fetchHighFidelityStories(user.uid);
+        if (!currentStories) throw new Error("Firebase returned undefined for currentStories");
+        
+        const relationalContext = "Identity Map & Relationships: " + contacts.map(c => 
+            `'${c.originalName}', '${c.aliases.join("', '")}' -> ${c.completeName}` + 
+            (c.preferredName ? ` [CRITICAL INSTRUCTION: When rewriting stories, ALWAYS use the preferred name: '${c.preferredName}' for this entity]` : '') +
+            (c.relationship ? ` (Relationship to narrator: ${c.relationship})` : '')
+        ).join(" | ");
+        
+        const batchSize = 1;
+        let updatedStories: any[] = [];
+        const totalBlocks = Math.ceil(currentStories.length / batchSize);
+        
+        for (let i = 0; i < currentStories.length; i += batchSize) {
+           const currentBlock = Math.floor(i / batchSize) + 1;
+           const percentRaw = Math.round((currentBlock / totalBlocks) * 100);
+           updateProgress(`Re-writing Chapter (${currentBlock}/${totalBlocks})...`, percentRaw, 100);
+           
+           const batch = currentStories.slice(i, i + batchSize);
+           try {
+              const resBatch = await recompileStoriesWithContactsAction(batch, relationalContext);
+              updatedStories = [...updatedStories, ...(resBatch || batch)];
+           } catch (batchErr: any) {
+              throw new Error(`Server Action failed on block ${currentBlock}: ${batchErr.message || String(batchErr)}`);
+           }
+           
+           if (i + batchSize < currentStories.length) {
+              await new Promise(res => setTimeout(res, 2000));
+           }
+        }
+        
+        updateProgress("Saving updated timeline to Firebase...", 99, 100);
+        const saved = await saveHighFidelityStories(user.uid, updatedStories);
+        if (!saved) throw new Error("Firebase save transaction rejected the write.");
+        
+        updateProgress("Timeline safely realigned using network data!", 100, 100);
+    });
   };
 
   const saveEdit = async () => {
@@ -198,6 +197,14 @@ export default function ContactsPage() {
       await saveContact(user.uid, merged);
       setContacts(prev => prev.map(c => c.id === merged.id ? merged : c));
       setEditingData(null);
+  };
+
+  const handleSetPreferredName = async (nameToPrefer: string) => {
+      if (!user || !activeContact) return;
+      const finalVal = activeContact.preferredName === nameToPrefer ? "" : nameToPrefer;
+      const updated = { ...activeContact, preferredName: finalVal };
+      await saveContact(user.uid, updated);
+      setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
   };
 
   const mergeDuplicates = async () => {
@@ -255,14 +262,11 @@ export default function ContactsPage() {
   if (loading) return <div className="p-8 text-center"><Loader2 className="animate-spin mx-auto text-zinc-400" /></div>;
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-50 dark:bg-zinc-950 overflow-hidden font-sans">
+    <div className="flex flex-col h-full bg-zinc-50 dark:bg-zinc-950 overflow-hidden font-sans">
       
       {/* Header */}
       <header className="flex-shrink-0 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-6 py-4 flex items-center justify-between">
          <div className="flex items-center gap-4">
-             <Link href="/" className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition text-zinc-500">
-               <ArrowLeft size={20} />
-             </Link>
              <div>
                 <h1 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-zinc-100">
                    Address Book
@@ -286,9 +290,9 @@ export default function ContactsPage() {
                {isImporting ? <Loader2 className="animate-spin" size={14}/> : <Upload size={14}/>}
                {isImporting ? "Processing..." : "Import"}
              </button>
-             <button disabled={isCommitingBulk || contacts.length === 0} onClick={handleBulkCommit} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50">
-               {isCommitingBulk ? <Loader2 className="animate-spin" size={14}/> : <RefreshCw size={14}/>}
-               {isCommitingBulk ? syncStatus : "Commit Ties to Timeline"}
+             <button disabled={contacts.length === 0} onClick={handleBulkCommit} title="Runs safely in the background" className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50">
+               <RefreshCw size={14}/>
+               Commit Ties to Timeline
              </button>
          </div>
       </header>
@@ -312,10 +316,15 @@ export default function ContactsPage() {
                                       onClick={() => { setActiveContactId(c.id); setEditingData(null); setActiveTab('profile'); }}
                                       className={`px-3 py-2 cursor-pointer flex items-center justify-between rounded-lg transition ${activeContactId === c.id ? 'bg-indigo-600 text-white' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200'}`}
                                    >
-                                      <div className="flex flex-col">
-                                         <span className="font-semibold text-sm">
-                                            {c.lastName ? `${c.lastName}, ${c.firstName || ''}` : (c.completeName || c.originalName)}
-                                         </span>
+                                      <div className="flex flex-col flex-1 truncate">
+                                         <div className="flex items-center gap-1.5">
+                                             <span className="font-semibold text-sm truncate">
+                                                {c.lastName ? `${c.lastName}, ${c.firstName || ''}` : (c.completeName || c.originalName)}
+                                             </span>
+                                             {Boolean(c.firstName && c.lastName && (c.preferredName || c.aliases?.length > 0)) && (
+                                                <ShieldCheck size={14} className={activeContactId === c.id ? "text-indigo-200 fill-indigo-400" : "text-emerald-500 fill-emerald-100 dark:fill-emerald-900"} />
+                                             )}
+                                         </div>
                                          {c.relationship && (
                                             <span className={`text-[10px] lowercase font-medium ${activeContactId === c.id ? 'text-indigo-200' : 'text-zinc-400'}`}>
                                                 {c.relationship}
@@ -336,16 +345,25 @@ export default function ContactsPage() {
             </div>
 
             {/* Strict iOS A-Z Scroller Tool */}
-            <div className="absolute right-0 top-0 bottom-0 w-8 flex flex-col items-center justify-center gap-0.5 py-4 z-10 select-none">
-                {ALPHABET.map(letter => (
-                    <div 
-                       key={letter} 
-                       onClick={() => scrollToLetter(letter)}
-                       className="text-[10px] font-bold text-indigo-500/60 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer w-full text-center hover:scale-125 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-transform"
-                    >
-                        {letter}
-                    </div>
-                ))}
+            <div className="absolute right-0 top-0 bottom-0 w-12 flex flex-col items-center justify-center gap-[1px] py-4 z-10 select-none">
+                {ALPHABET.map(letter => {
+                    const count = groupedContacts[letter]?.length || 0;
+                    return (
+                        <div 
+                           key={letter} 
+                           onClick={() => count > 0 && scrollToLetter(letter)}
+                           className={`flex items-center gap-0.5 text-[9px] cursor-pointer w-full justify-center px-1 py-[2px] rounded-sm transition-transform ${
+                               count > 0 
+                               ? "font-bold text-indigo-600 dark:text-indigo-400 hover:scale-125 hover:bg-slate-100 dark:hover:bg-slate-800" 
+                               : "font-medium text-zinc-300 dark:text-zinc-700"
+                           }`}
+                           title={count > 0 ? `${count} contacts` : 'No contacts'}
+                        >
+                            <span>{letter}</span>
+                            {count > 0 && <span className="opacity-60 text-[7px] tracking-tighter">[{count}]</span>}
+                        </div>
+                    );
+                })}
             </div>
          </div>
 
@@ -470,6 +488,7 @@ export default function ContactsPage() {
                                 {editingData ? (
                                    <select value={editingData.relationship ?? activeContact.relationship ?? ''} onChange={e => setEditingData({...editingData, relationship: e.target.value})} className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded font-medium text-sm">
                                       <option value="">Unknown</option>
+                                      <option value="Self">Self / Account Owner</option>
                                       <optgroup label="Immediate Family">
                                         <option value="Mother">Mother</option>
                                         <option value="Father">Father</option>
@@ -549,25 +568,40 @@ export default function ContactsPage() {
                          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-sm">
                              <h3 className="font-bold text-lg text-zinc-800 dark:text-zinc-200 border-b border-zinc-100 dark:border-zinc-800 pb-3 mb-4">AI Disambiguation</h3>
                              
+                             <div className="text-[10px] uppercase font-bold text-zinc-500 mb-3 block">Select a primary name for AI compilation contexts</div>
                              <div className="grid grid-cols-2 gap-4">
                                 <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-2">Canon Identifier</span>
-                                   <span className="font-mono text-sm bg-zinc-200 dark:bg-zinc-800 px-2 py-1 rounded text-zinc-700 dark:text-zinc-300">
+                                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-3">Canon Identifier</span>
+                                   <div 
+                                      className={`flex items-center gap-1.5 w-max px-3 py-1.5 rounded-full font-mono text-sm cursor-pointer transition border ${activeContact.preferredName === activeContact.originalName ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100' : 'bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:border-amber-400 group'}`}
+                                      onClick={() => handleSetPreferredName(activeContact.originalName)}
+                                   >
+                                      <Star size={14} className={activeContact.preferredName === activeContact.originalName ? "fill-amber-400 text-amber-500" : "text-zinc-300 dark:text-zinc-600 group-hover:text-amber-400"} />
                                       {activeContact.originalName}
-                                   </span>
+                                   </div>
                                 </div>
+                                
                                 <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-2 px-1">Known Aliases</span>
+                                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-3 px-1">Known Aliases</span>
                                    {editingData ? (
                                       <input 
                                          value={editingData.rawAliasesText ?? editingData.aliases?.join(', ') ?? activeContact.aliases?.join(', ') ?? ''} 
                                          onChange={e => setEditingData({...editingData, rawAliasesText: e.target.value})} 
-                                         className="w-full px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded font-medium text-sm focus:ring-2 outline-none"
-                                         placeholder="e.g. Bobby, Rob..."
+                                         className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg font-medium text-sm focus:ring-2 outline-none"
+                                         placeholder="e.g. Robert, Rob..."
                                       />
                                    ) : (
-                                     <div className="flex flex-wrap gap-1">
-                                        {(activeContact.aliases || []).length > 0 ? activeContact.aliases.map(a => <span key={a} className="bg-zinc-200 dark:bg-zinc-800 text-xs px-2 py-1 rounded font-medium">{a}</span>) : <span className="text-xs text-zinc-400 p-1">No aliases saved.</span>}
+                                     <div className="flex flex-wrap gap-2">
+                                        {(activeContact.aliases || []).length > 0 ? activeContact.aliases.map(a => (
+                                           <div 
+                                              key={a}
+                                              className={`flex items-center gap-1.5 w-max px-3 py-1.5 rounded-full text-sm font-medium cursor-pointer transition border ${activeContact.preferredName === a ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100' : 'bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:border-amber-400 group'}`}
+                                              onClick={() => handleSetPreferredName(a)}
+                                           >
+                                              <Star size={14} className={activeContact.preferredName === a ? "fill-amber-400 text-amber-500" : "text-zinc-300 dark:text-zinc-600 group-hover:text-amber-400"} />
+                                              {a}
+                                           </div>
+                                        )) : <span className="text-xs text-zinc-400 p-1">No aliases to elect. Add some below.</span>}
                                      </div>
                                    )}
                                 </div>

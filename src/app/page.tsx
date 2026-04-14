@@ -1,17 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, embedAndUpsertToPineconeAction, deletePineconeSourceAction, deleteAllPineconeResourcesAction, recompileStoriesWithContactsAction, reduceDashboardOverviewAction } from "./actions";
-import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, saveQuestionBankItem, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/firebase/db";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, embedStoriesToPineconeAction, deletePineconeSourceAction, deleteAllPineconeResourcesAction, recompileStoriesWithContactsAction, reduceDashboardOverviewAction } from "./actions";
+import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, saveQuestionBankItem, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/firebase/db";
+import { useBackgroundJobs } from "@/components/BackgroundJobProvider";
 import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview } from "@/lib/rag";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import Link from "next/link";
-import { Sparkles, Search, BookOpen, FileText, X, PlusCircle, LogOut, ArrowRight, Share2, Settings, MessageSquare, AudioLines, Presentation, Network, Brain, FileSpreadsheet, Loader2, RefreshCcw, Trash2, User, Activity } from "lucide-react";
+import { Sparkles, Search, BookOpen, FileText, X, PlusCircle, LogOut, ArrowRight, Share2, Settings, MessageSquare, AudioLines, Presentation, Network, Brain, FileSpreadsheet, Loader2, RefreshCcw, Trash2, User, Activity, PenTool } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { InterviewerModal } from "@/components/InterviewerModal";
+import { PodcastModal } from "@/components/PodcastModal";
 import { auth } from "@/lib/firebase/client";
+
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ#".split('');
 
 export interface UploadProgressState {
   [fileName: string]: {
@@ -22,20 +26,47 @@ export interface UploadProgressState {
 
 export default function Home() {
   const { user, loading } = useAuth();
+  const { jobs } = useBackgroundJobs();
   const [sources, setSources] = useState<NotebookSource[]>([]);
+  const [synopsis, setSynopsis] = useState<string>("");
+  const [wisdomSummaries, setWisdomSummaries] = useState<WisdomSummary[]>([]);
+  const [questions, setQuestions] = useState<string[]>([]);
+  const [actionMetrics, setActionMetrics] = useState({ unconfirmedEntities: 0, narrativeGaps: 0, ready: false });
   const [isUploading, setIsUploading] = useState(false);
   const [activeUploads, setActiveUploads] = useState<UploadProgressState>({});
   
   const [chunks, setChunks] = useState<TranscriptChunk[]>([]);
-  const [questions, setQuestions] = useState<string[]>([]);
-  const [synopsis, setSynopsis] = useState<string>("");
   
   const [chatMessages, setChatMessages] = useState<{role: string, text: string}[]>([]);
   const [activeStreamText, setActiveStreamText] = useState("");
   const [chatInput, setChatInput] = useState("");
   const [isChatting, setIsChatting] = useState(false);
-  const [wisdomSummaries, setWisdomSummaries] = useState<WisdomSummary[]>([]);
   const [tagSearchQuery, setTagSearchQuery] = useState("");
+  
+  const groupedWisdomTags = useMemo(() => {
+     const groups: Record<string, WisdomSummary[]> = {};
+     ALPHABET.forEach(l => groups[l] = []);
+     
+     const filtered = wisdomSummaries
+          .filter(w => w.tag.toLowerCase().includes(tagSearchQuery.toLowerCase()))
+          .sort((a,b) => a.tag.localeCompare(b.tag));
+          
+     filtered.forEach(w => {
+         const charRaw = w.tag.replace(/^#/, '').trim().charAt(0).toUpperCase();
+         const firstChar = ALPHABET.includes(charRaw) ? charRaw : '#';
+         groups[firstChar].push(w);
+     });
+     return groups;
+  }, [wisdomSummaries, tagSearchQuery]);
+
+  const scrollToWisdomLetter = (letter: string) => {
+      const el = document.getElementById(`wisdom-letter-${letter}`);
+      const container = document.getElementById("wisdom-scroll-container");
+      if (el && container) {
+          const topPos = el.offsetTop - container.offsetTop;
+          container.scrollTo({ top: topPos, behavior: 'smooth' });
+      }
+  };
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [dashboardProgress, setDashboardProgress] = useState<{current: number, total: number, etaSeconds: number} | null>(null);
@@ -55,9 +86,62 @@ export default function Home() {
   const [isInterviewerThinking, setIsInterviewerThinking] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [showVault, setShowVault] = useState(false);
+  
   const [isInterviewerOpen, setIsInterviewerOpen] = useState(false);
+  const [isPodcastModalOpen, setIsPodcastModalOpen] = useState(false);
   
   const [contacts, setContacts] = useState<Contact[]>([]);
+
+  const [selectionContext, setSelectionContext] = useState<{text: string; x: number; y: number} | null>(null);
+  const [overrideInput, setOverrideInput] = useState("");
+  const [isSavingOverride, setIsSavingOverride] = useState(false);
+
+  const handleSelection = () => {
+     const selection = window.getSelection();
+     if (selection && selection.toString().trim() !== "") {
+        const text = selection.toString().trim();
+        if (text.length < 5) return;
+        try {
+           const range = selection.getRangeAt(0);
+           const rect = range.getBoundingClientRect();
+           setSelectionContext({
+              text,
+              x: rect.left + rect.width / 2,
+              y: Math.max(rect.top - 10, 40)
+           });
+        } catch (e) {
+           console.error(e);
+        }
+     } else {
+        setSelectionContext(null);
+     }
+  };
+
+  useEffect(() => {
+     document.addEventListener("selectionchange", handleSelection);
+     return () => document.removeEventListener("selectionchange", handleSelection);
+  }, []);
+
+  const submitOverride = async () => {
+     if (!user || (!overrideInput.trim() && !selectionContext?.text)) return;
+     setIsSavingOverride(true);
+     try {
+       const profile = await fetchUserProfile(user.uid) || {};
+       const currentOverrides = profile.userOverrides || [];
+       const newOverride = `Discrepancy spotted: AI originally generated "${selectionContext?.text}". User Corrected Truth: ${overrideInput}`;
+       
+       await updateUserProfile(user.uid, {
+         userOverrides: [...currentOverrides, newOverride]
+       });
+       setSelectionContext(null);
+       setOverrideInput("");
+       alert("Correction saved to your master database! The AI Interviewer will remember this moving forward.");
+     } catch (e) {
+       console.error("Failed to commit override", e);
+     } finally {
+       setIsSavingOverride(false);
+     }
+  };
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -78,8 +162,21 @@ export default function Home() {
     // 1. Fetch Sources and Contacts
     const cloudSources = await fetchUserSources(user.uid);
     setSources(cloudSources);
-    const loadedContacts = await fetchContacts(user.uid);
+    const [loadedContacts, loadedStories] = await Promise.all([
+        fetchContacts(user.uid),
+        fetchHighFidelityStories(user.uid)
+    ]);
     setContacts(loadedContacts);
+
+    const cList = loadedContacts || [];
+    const sList = loadedStories || [];
+    const verifiedCount = cList.filter(c => Boolean(c.firstName && c.lastName && (c.preferredName || c.aliases?.length > 0))).length;
+
+    setActionMetrics({
+        unconfirmedEntities: cList.length > 0 ? cList.length - verifiedCount : 0,
+        narrativeGaps: sList.filter(s => Boolean(s.gapPrompt && s.gapPrompt.trim().length > 0)).length,
+        ready: true
+    });
 
     // 2. Fetch Persistent Dashboard State
     const dashboardState = await fetchDashboardState(user.uid);
@@ -155,8 +252,6 @@ export default function Home() {
       
       if (savedDoc) {
         uploadedSources.push(savedDoc);
-        setActiveUploads(prev => ({ ...prev, [file.name]: { stage: "Vectorizing via Pinecone Agents", progress: 70 } }));
-        await embedAndUpsertToPineconeAction(user.uid, savedDoc.id, text);
       }
       
       setActiveUploads(prev => ({ ...prev, [file.name]: { stage: "Waiting for Global Synthesis", progress: 80 } }));
@@ -186,6 +281,9 @@ export default function Home() {
 
         const updatedStories = await reduceHighFidelityStoriesAction(currentStories, rawMappedStories, undefined, relationalContext);
         await saveHighFidelityStories(user.uid, updatedStories);
+        
+        // Re-embed the complete, clean, metadata-rich stories! Overwrites old matches dynamically via their story.id
+        await embedStoriesToPineconeAction(user.uid, "nexus-vault", updatedStories);
 
         // Auto-Harvest Gap Prompts into Question Bank
         for (const story of updatedStories) {
@@ -340,16 +438,7 @@ export default function Home() {
 
     if (targetSource && targetSource.id) {
        await deleteNotebookSource(targetSource.id);
-       
-       // Scrub orphaned Vectors from Pinecone natively!
-       if (user) {
-          if (newSources.length === 0) {
-             // Sweep the entire namespace if vault is emptied!
-             await deleteAllPineconeResourcesAction(user.uid);
-          } else {
-             await deletePineconeSourceAction(user.uid, targetSource.id);
-          }
-       }
+       // Vectors are scrubbed and rebuilt during the Reconciliation Phase below.
     }
 
     // --- NEW: Reconciliation Recompile ---
@@ -359,8 +448,12 @@ export default function Home() {
           const vaultContext = newSources.map(s => `[Source: ${s.fileName}]\n${s.textContent}`).join("\n\n");
           const recompiled = await extractHighFidelityStoriesAction(vaultContext);
           await saveHighFidelityStories(user.uid, recompiled);
+          
+          await deleteAllPineconeResourcesAction(user.uid);
+          await embedStoriesToPineconeAction(user.uid, "nexus-vault", recompiled);
         } else {
           await saveHighFidelityStories(user.uid, []);
+          await deleteAllPineconeResourcesAction(user.uid);
         }
       } catch (err) {
         console.error("Reconciliation compilation failed:", err);
@@ -402,9 +495,13 @@ export default function Home() {
     }
 
     let linguisticContext = "";
+    let systemOverrides = "";
     if (user) {
       const profile = await fetchUserProfile(user.uid);
       linguisticContext = [profile?.culturalHeritage, profile?.primaryLanguage, profile?.secondaryLanguages].filter(Boolean).join(" | ");
+      if (profile?.userOverrides && profile.userOverrides.length > 0) {
+         systemOverrides = profile.userOverrides.join(" | ");
+      }
     }
 
     let relationalContext = "";
@@ -426,6 +523,7 @@ export default function Home() {
           history: chatMessages, // omit the current user prompt since it's sent as 'question'
           linguisticContext,
           relationalContext,
+          systemOverrides,
         }),
       });
 
@@ -494,7 +592,7 @@ export default function Home() {
   if (!user) return <div className="min-h-screen bg-[#F6F5F0] dark:bg-zinc-950 px-4"><LoginModule /></div>;
 
   return (
-    <div className="h-screen flex flex-col bg-[#F3F4F6] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans overflow-hidden">
+    <div className="h-full flex flex-col bg-[#F3F4F6] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans overflow-hidden">
       
       <AnimatePresence>
         {isInterviewerOpen && user && (
@@ -508,44 +606,19 @@ export default function Home() {
             }} 
           />
         )}
+        {isPodcastModalOpen && user && (
+           <PodcastModal 
+             userId={user.uid}
+             onClose={() => setIsPodcastModalOpen(false)}
+           />
+        )}
       </AnimatePresence>
-
-      {/* Global Header */}
-      <header className="flex-shrink-0 flex items-center justify-between px-6 py-3 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
-        <div className="flex items-center gap-4">
-          <div className="bg-slate-900 dark:bg-white text-white dark:text-zinc-900 w-8 h-8 rounded-full flex items-center justify-center font-bold font-serif shadow-sm">N</div>
-          <span className="font-semibold text-lg flex items-center gap-2">Legacy Nexus <span className="px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-xs rounded-full font-medium text-zinc-500">Workspace</span></span>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <button className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition"><Share2 size={16}/> Share</button>
-          <button className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition"><Settings size={16}/> Settings</button>
-          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold cursor-pointer relative group">
-            {user.email?.[0].toUpperCase()}
-            <div className="absolute top-full right-0 pt-2 w-48 hidden group-hover:block z-50">
-               <div className="bg-white shadow-lg border border-slate-200 rounded-xl p-2 flex flex-col gap-1">
-                 <div className="px-3 py-2 text-xs text-slate-500 truncate">{user.email}</div>
-                 <Link href="/profile" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2">
-                   <User size={16}/> Profile
-                 </Link>
-                 <Link href="/contacts" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2">
-                   <Network size={16}/> Address Book
-                 </Link>
-                 <Link href="/progress" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2">
-                   <Activity size={16}/> Legacy Progress
-                 </Link>
-                 <button onClick={() => auth.signOut()} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-2 mt-1 border-t border-zinc-100 dark:border-zinc-800 pt-3"><LogOut size={16}/> Sign Out</button>
-               </div>
-            </div>
-          </div>
-        </div>
-      </header>
 
       {/* Main Grid */}
       <main className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
         
         {/* COLUMN 1: Sources (25%) */}
-        <div className="col-span-3 bg-white/60 dark:bg-zinc-900/40 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full overflow-y-auto">
+        <div className="col-span-3 bg-white/60 dark:bg-zinc-900/40 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full overflow-hidden">
           <div className="p-4 flex items-center justify-between sticky top-0 bg-white/60 dark:bg-zinc-900/40 backdrop-blur z-10 border-b border-zinc-100 dark:border-zinc-800/50">
             <h2 className="text-[15px] font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-2">
               Sources
@@ -558,7 +631,7 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="p-4 flex flex-col gap-4">
+          <div className="p-4 flex flex-col gap-4 flex-1 h-0 pb-0">
             {/* Native Auto-upload Label */}
             <label className={`flex items-center justify-center gap-2 w-full py-2.5 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-sm font-medium rounded-full cursor-pointer transition shadow-sm ${isUploading ? 'opacity-50 pointer-events-none':''}`}>
               {isUploading ? <RefreshCcw size={16} className="animate-spin text-zinc-500"/> : <PlusCircle size={16} />} 
@@ -637,19 +710,53 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="flex flex-col gap-2 overflow-y-auto pr-2 pb-10">
-                {[...wisdomSummaries]
-                  .filter(w => w.tag.toLowerCase().includes(tagSearchQuery.toLowerCase()))
-                  .sort((a,b) => a.tag.localeCompare(b.tag))
-                  .map((wisdom, idx) => (
-                  <button 
-                    key={idx} 
-                    onClick={() => handleTagClick(wisdom)}
-                    className="text-xs font-semibold px-2 py-1.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/50 rounded-md cursor-pointer transition text-left"
-                  >
-                    {wisdom.tag}
-                  </button>
-                ))}
+              <div className="relative flex-1 flex overflow-hidden -mr-6 pr-6">
+                 <div id="wisdom-scroll-container" className="flex flex-col gap-4 overflow-y-auto pr-8 pb-10 flex-1 relative no-scrollbar">
+                    {ALPHABET.map(letter => {
+                        const group = groupedWisdomTags[letter];
+                        if (!group || group.length === 0) return null;
+                        return (
+                           <div key={`wisdom-${letter}`} id={`wisdom-letter-${letter}`} className="flex flex-col gap-2 relative">
+                              <span className="text-[10px] font-bold text-zinc-300 dark:text-zinc-600 mb-1 pl-1 border-b border-zinc-100 dark:border-zinc-800/50 pb-1">{letter}</span>
+                              {group.map((wisdom, idx) => (
+                                 <button 
+                                   key={`${letter}-${idx}`}
+                                   onClick={() => handleTagClick(wisdom)}
+                                   className="text-xs font-semibold px-2 py-1.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/50 rounded-md cursor-pointer transition text-left relative group z-10"
+                                 >
+                                   {wisdom.tag}
+                                 </button>
+                              ))}
+                           </div>
+                        );
+                    })}
+                    {wisdomSummaries.length > 0 && Object.values(groupedWisdomTags).every(g => g.length === 0) && (
+                       <span className="text-xs text-zinc-400 italic text-center w-full block mt-4">No tags match search.</span>
+                    )}
+                 </div>
+                 
+                 {wisdomSummaries.length > 0 && (
+                     <div className="absolute right-0 top-0 bottom-0 w-8 flex flex-col items-center justify-center gap-[1px] py-2 z-20 select-none bg-zinc-50/80 dark:bg-zinc-950/80 backdrop-blur-sm shadow-[-4px_0_12px_rgba(0,0,0,0.02)]">
+                         {ALPHABET.map(letter => {
+                             const count = groupedWisdomTags[letter]?.length || 0;
+                             return (
+                                 <div 
+                                    key={`nav-${letter}`} 
+                                    onClick={() => count > 0 && scrollToWisdomLetter(letter)}
+                                    className={`flex items-center gap-0.5 text-[9px] cursor-pointer w-full justify-center px-1 py-[2px] rounded-sm transition-transform ${
+                                        count > 0 
+                                        ? "font-bold text-indigo-600 dark:text-indigo-400 hover:scale-125 hover:bg-slate-100 dark:hover:bg-slate-800" 
+                                        : "font-medium text-zinc-300 dark:text-zinc-700"
+                                    }`}
+                                    title={count > 0 ? `${count} tags` : 'No tags'}
+                                 >
+                                     <span>{letter}</span>
+                                     {count > 0 && <span className="opacity-60 text-[7px] tracking-tighter hidden md:inline">[{count}]</span>}
+                                 </div>
+                             );
+                         })}
+                     </div>
+                 )}
               </div>
             </div>
             
@@ -808,7 +915,10 @@ export default function Home() {
               
               {/* Studio Tool Grid */}
               <div className="grid grid-cols-1 gap-3">
-                 <div className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900 hover:border-blue-400 transition cursor-pointer p-4 rounded-xl flex items-center gap-4 hover:shadow-md">
+                 <div 
+                   onClick={() => setIsPodcastModalOpen(true)}
+                   className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900 hover:border-blue-400 transition cursor-pointer p-4 rounded-xl flex items-center gap-4 hover:shadow-md"
+                 >
                     <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center flex-shrink-0">
                        <AudioLines className="text-blue-600 dark:text-blue-400" size={20}/>
                     </div>
@@ -845,28 +955,76 @@ export default function Home() {
                  </div>
               </div>
 
-              {/* AI Interviewer Integration */}
+              {/* Status & To-Do Legend */}
               <div className="border-t border-zinc-200 dark:border-zinc-800 pt-6">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-4"><Brain size={14}/> Interviewer Suggestions</h3>
-                
-                {isInterviewerThinking && (
-                   <div className="p-4 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 animate-pulse text-sm text-zinc-500">
-                     Synthesizing interrogations...
-                   </div>
-                )}
+                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-4"><Activity size={14}/> Status & Actions Legend</h3>
                 
                 <div className="space-y-3">
-                  {questions.map((q, idx) => (
-                    <div key={idx} className="p-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm hover:border-blue-400 cursor-pointer transition text-[13px] leading-snug text-zinc-700 dark:text-zinc-300 font-medium">
-                      {q}
+                  {jobs.length > 0 && (
+                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900 rounded-xl shadow-sm">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+                           <Loader2 size={14} className="animate-spin" /> Active Background Workers ({jobs.length})
+                        </span>
+                      </div>
+                      <div className="space-y-3">
+                        {jobs.map(job => (
+                           <div key={job.id} className="flex flex-col gap-1.5">
+                             <div className="flex justify-between items-end text-xs">
+                               <span className="font-semibold text-zinc-800 dark:text-zinc-200">{job.title}</span>
+                               <span className="text-indigo-600 dark:text-indigo-400 font-mono">{job.progress}%</span>
+                             </div>
+                             <div className="w-full bg-indigo-100 dark:bg-indigo-900/50 rounded-full h-1.5 overflow-hidden">
+                               <div className="bg-indigo-500 h-1.5 transition-all duration-300 relative">
+                                  <div className="absolute inset-0 bg-white/30 backdrop-blur-sm -skew-x-12 animate-pulse"></div>
+                               </div>
+                               <div className="bg-indigo-500 h-1.5 transition-all duration-300 -mt-1.5" style={{ width: `${job.progress}%` }}></div>
+                             </div>
+                             <span className="text-[10px] text-zinc-500 truncate">{job.message}</span>
+                           </div>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                  {questions.length === 0 && !isInterviewerThinking && chunks.length > 0 && (
-                     <p className="text-sm text-zinc-500">No suggestions generated.</p>
                   )}
-                  {chunks.length === 0 && !isProcessing && (
-                     <p className="text-xs text-zinc-400 text-center mt-8">Upload documents to unlock the Studio features.</p>
-                  )}
+
+                  <Link href="/contacts" className="flex items-center justify-between p-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm hover:border-blue-400 cursor-pointer transition group">
+                    <div className="flex items-center gap-3">
+                       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${actionMetrics.unconfirmedEntities > 0 ? "bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800"}`}>
+                          <Network size={14}/>
+                       </div>
+                       <div className="flex flex-col">
+                          <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Unconfirmed Entities</span>
+                          <span className="text-xs text-zinc-500">Address Book identity alignment</span>
+                       </div>
+                    </div>
+                    {actionMetrics.ready ? (
+                       <span className={`font-mono text-sm font-bold ${actionMetrics.unconfirmedEntities > 0 ? "text-amber-600 dark:text-amber-400" : "text-zinc-300 dark:text-zinc-700"}`}>
+                         {actionMetrics.unconfirmedEntities}
+                       </span>
+                    ) : (
+                       <Loader2 size={14} className="animate-spin text-zinc-300" />
+                    )}
+                  </Link>
+
+                  <Link href="/stories" className="flex items-center justify-between p-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm hover:border-blue-400 cursor-pointer transition group">
+                    <div className="flex items-center gap-3">
+                       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${actionMetrics.narrativeGaps > 0 ? "bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400" : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800"}`}>
+                          <BookOpen size={14}/>
+                       </div>
+                       <div className="flex flex-col">
+                          <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Narrative Gaps</span>
+                          <span className="text-xs text-zinc-500">Timeline chapters missing deep context</span>
+                       </div>
+                    </div>
+                    {actionMetrics.ready ? (
+                       <span className={`font-mono text-sm font-bold ${actionMetrics.narrativeGaps > 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-300 dark:text-zinc-700"}`}>
+                         {actionMetrics.narrativeGaps}
+                       </span>
+                    ) : (
+                       <Loader2 size={14} className="animate-spin text-zinc-300" />
+                    )}
+                  </Link>
+
                 </div>
               </div>
            </div>
@@ -891,6 +1049,45 @@ export default function Home() {
                      ? `Chunk ${dashboardProgress.current}/${dashboardProgress.total} • ${dashboardProgress.etaSeconds}s remaining`
                      : "Updating local timeline..."}
               </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {selectionContext && (
+          <motion.div 
+             initial={{ opacity: 0, y: 10, scale: 0.95 }}
+             animate={{ opacity: 1, y: 0, scale: 1 }}
+             exit={{ opacity: 0, y: 5, scale: 0.95 }}
+             className="fixed z-[9999] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-2xl p-4 w-[380px]"
+             style={{ left: Math.min(selectionContext.x, window.innerWidth - 400), top: selectionContext.y + 20 }}
+          >
+            <div className="flex items-center justify-between mb-3 border-b border-zinc-100 dark:border-zinc-800 pb-2">
+              <h4 className="font-bold text-red-600 dark:text-red-400 flex items-center gap-1.5 text-sm">
+                <Sparkles size={14} /> AI Discrepancy Found?
+              </h4>
+              <button onClick={() => setSelectionContext(null)} className="text-zinc-400 hover:text-zinc-600">
+                <X size={14} />
+              </button>
+            </div>
+            <p className="text-xs text-zinc-500 mb-3 italic line-clamp-2 leading-relaxed">
+               "{selectionContext.text}"
+            </p>
+            <textarea 
+               value={overrideInput}
+               onChange={(e) => setOverrideInput(e.target.value)}
+               placeholder="Explain the actual truth to the AI so it never makes this mistake again..."
+               className="w-full text-sm bg-zinc-50 dark:bg-[#121212] border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 min-h-[100px] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+            />
+            <div className="flex justify-end gap-2">
+              <button 
+                 onClick={submitOverride}
+                 disabled={isSavingOverride || !overrideInput.trim()}
+                 className="flex items-center gap-2 px-4 py-2 bg-black dark:bg-white text-white dark:text-black hover:bg-zinc-800 dark:hover:bg-zinc-200 font-bold text-xs rounded-lg transition disabled:opacity-50"
+              >
+                 {isSavingOverride ? <Loader2 size={12} className="animate-spin"/> : <PenTool size={12}/>}
+                 Override AI Memory
+              </button>
             </div>
           </motion.div>
         )}

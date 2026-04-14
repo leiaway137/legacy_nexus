@@ -10,9 +10,10 @@ interface InterviewerModalProps {
   userId: string;
   onClose: () => void;
   onSave: (transcript: string) => Promise<void>;
+  initialPrompt?: string;
 }
 
-export function InterviewerModal({ userId, onClose, onSave }: InterviewerModalProps) {
+export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: InterviewerModalProps) {
   const [history, setHistory] = useState<{ role: string; text: string }[]>([]);
   const historyRef = useRef<{ role: string; text: string }[]>([]);
   const [imageBase64, setImageBase64] = useState<string | undefined>();
@@ -178,9 +179,17 @@ export function InterviewerModal({ userId, onClose, onSave }: InterviewerModalPr
       mediaRecorderRef.current.start();
       setHasStarted(true);
       
-      // AI initiates conversation
-      currentTurnIdRef.current += 1;
-      triggerAiTurn(historyRef.current, currentTurnIdRef.current);
+      if (initialPrompt && historyRef.current.length === 0) {
+          // Immediately set AI's first turn to the initial prompt (typically a gap prompt)
+          const newMsg = { role: "assistant", text: initialPrompt };
+          setHistory([newMsg]);
+          historyRef.current = [newMsg];
+          speakUtterance(initialPrompt);
+      } else {
+          // AI initiates conversation completely dynamically via LLM
+          currentTurnIdRef.current += 1;
+          triggerAiTurn(historyRef.current, currentTurnIdRef.current);
+      }
     } catch (err: any) {
       console.error("Microphone access denied or not found:", err);
       if (err.name === 'NotFoundError' || err.message.includes('Requested device not found')) {
@@ -274,8 +283,11 @@ export function InterviewerModal({ userId, onClose, onSave }: InterviewerModalPr
     setHistory(prev => [...prev, { role: "assistant", text: aiResponseText }]);
     historyRef.current = [...historyRef.current, { role: "assistant", text: aiResponseText }];
     
-    // Speak response natively
-    const utterance = new SpeechSynthesisUtterance(aiResponseText);
+    speakUtterance(aiResponseText);
+  };
+
+  const speakUtterance = (textToSpeak: string) => {
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
     utterance.rate = 0.95; // Slightly slower
     utterance.pitch = 1.0;
     

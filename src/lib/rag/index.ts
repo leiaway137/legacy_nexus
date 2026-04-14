@@ -76,6 +76,7 @@ export async function processTranscriptForRag(transcriptText: string): Promise<T
     You are an expert archivist for Legacy Nexus, a platform that preserves life stories.
     Your task is to segment a raw transcript into logical narrative chunks.
     For each chunk, provide the text segment and 2-3 relevant "Wisdom Tags" (e.g., "#Resilience", "#CareerPivot").
+    CRITICAL CONSTRAINT: Tags MUST be short, atomic, single-concept nouns (max 1-2 words). Do not concatenate concepts into long sentences (e.g. NEVER use "#ImmigrantResilienceAndEducationalLegacy"). Instead, break complex ideas down into separate, atomic tags (e.g. "#Immigration", "#Resilience", "#Education").
 
     Raw Transcript:
     "${transcriptText}" // Using full context, Gemini Flash has a 1M token window.
@@ -113,6 +114,73 @@ export async function processTranscriptForRag(transcriptText: string): Promise<T
     if (typeof raw === "function") raw = (raw as any)();
     raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
     return JSON.parse(raw) as TranscriptChunk[];
+  }
+  return [];
+}
+
+export async function generatePodcastTranscript(transcriptContext: string, focusArea: string, durationOption: string): Promise<{speaker: "Host 1" | "Host 2", text: string}[]> {
+  if (!transcriptContext.trim()) return [];
+  
+  // Approximate length targets based on durationOption (Short vs Long)
+  // Short = ~3-5 mins audio (approx 500-800 words), Long = 10+ mins (approx 1500-2000 words)
+  const lengthInstruction = durationOption.toLowerCase().includes("long") 
+    ? "aim for a long, deep-dive 10-15 minute discussion containing around 1500 to 2000 words. Dive deeply into specifics, tangents, and nuances." 
+    : "aim for a short, punchy 3-5 minute discussion containing around 500 to 800 words. Keep it focused and moving quickly.";
+
+  const prompt = `
+    You are an expert podcast production AI mimicking a highly popular, conversational "Deep Dive" podcast like NotebookLM's Audio Overview.
+    Based strictly on the source materials provided, write an engaging back-and-forth podcast transcript between two hosts: "Host 1" and "Host 2".
+    Host 1 is typically the primary driver/storyteller, and Host 2 is the inquisitive, amazed co-host reacting and asking excellent follow up questions.
+    
+    CRITICAL PERSPECTIVE RULES:
+    - You are two EXTERNAL podcast hosts discussing a historical archive or interview transcript. 
+    - You MUST maintain a third-person, documentary perspective.
+    - DO NOT adopt the first-person perspective of the narrator in the text. NEVER say "my father," "my grandfather," "I remember," or "when I was younger." 
+    - Translate all first-person accounts into the third-person. For example, if the text says "my grandfather grew up in Taiwan," you must say "Their grandfather grew up in Taiwan," or deduce the subject's name and say "Albert's grandfather grew up in Taiwan."
+    
+    The user has requested the podcast to specifically focus on the following subject: "${focusArea}".
+    Please ${lengthInstruction}
+    
+    Make the dialogue extremely natural. Use filler words appropriately (like "wow", "exactly", "it's crazy that...").
+    Do NOT output raw markdown styling. Do NOT include sound effects or stage directions like [Laughter] or [Sigh]. Keep it purely spoken text.
+    
+    Sources context:
+    ${transcriptContext}
+  `;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: prompt,
+    config: {
+      temperature: 0.8, // Slightly higher for more conversational creativity
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        description: "The sequential dialogue lines of the podcast.",
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            speaker: {
+              type: Type.STRING,
+              description: "Must be exactly 'Host 1' or 'Host 2'",
+              enum: ["Host 1", "Host 2"]
+            },
+            text: {
+              type: Type.STRING,
+              description: "The spoken dialogue line for the host. Plain text."
+            }
+          },
+          required: ["speaker", "text"]
+        }
+      }
+    }
+  });
+
+  if (response.text) {
+    let raw = response.text;
+    if (typeof raw === "function") raw = (raw as any)();
+    raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
+    return JSON.parse(raw) as {speaker: "Host 1" | "Host 2", text: string}[];
   }
   return [];
 }
@@ -187,7 +255,8 @@ export async function generateWisdomSummaries(transcriptContext: string): Promis
   const prompt = `
     You are an expert biographer for Legacy Nexus.
     Analyze the full provided transcript and explicitly identify an extensive list of specific, granular life themes and events (e.g., "#FirstLove", "#Resilience", "#CareerPivot", "#Bowling", "#ChinatownLife").
-    The number of tags should elegantly scale with the length and breadth of the transcript context (typically 10-30 tags depending on volume). Please do not artificially limit the tags; be specific, exhaustive, and avoid clumping details into a few broad corporate categories.
+    CRITICAL CONSTRAINT: Tags MUST be short, atomic, single-concept nouns (max 1-2 words). Do not concatenate concepts into long sentences (e.g. NEVER use "#ImmigrantResilienceAndEducationalLegacy"). Instead, break complex ideas down into separate, atomic tags (e.g. "#Immigration", "#Resilience", "#Education").
+    The number of tags should elegantly scale with the length and breadth of the transcript context (typically 30-50 tags depending on volume). Please do not artificially limit the tags; be exhaustive.
     For each theme, write a compelling, comprehensive summary of the individual's view or experience regarding that theme, based on all the provided text.
     The summary should not just be a snippet, but a thought-out synthesis of their perspective.
     
@@ -307,7 +376,7 @@ export async function generateLegacyIdentityContext(primaryRiasec: string, secon
   return "You have forged a legacy deeply rooted in dynamic action and nuanced personal philosophy.";
 }
 
-export async function chatWithLegacyStream(transcriptContext: string, question: string, history: {role: string, text: string}[] = [], linguisticContext?: string, relationalContext?: string): Promise<ReadableStream> {
+export async function chatWithLegacyStream(transcriptContext: string, question: string, history: {role: string, text: string}[] = [], linguisticContext?: string, relationalContext?: string, systemOverrides?: string): Promise<ReadableStream> {
   if (!transcriptContext.trim()) throw new Error("No context provided.");
   let formattedHistory = history.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`).join("\\n");
   
@@ -323,6 +392,7 @@ export async function chatWithLegacyStream(transcriptContext: string, question: 
     - HALLUCINATION PREVENTION: If the exact answer is not clearly articulated in the specific fragments provided, you must explicitly tell the user that the retrieved memories don't contain the full detail, rather than hallucinating an incorrect narrative.
     ${linguisticContext ? `- LINGUISTIC CORRECTIONS: The speaker's cultural background/languages are: ${linguisticContext}. If you output any foreign words, recipes, or phrases that were translated phonetically in the transcript, elegantly guestimate their correct native romanization (e.g., Pinyin/Characters) and provide an English translation in brackets. NEVER output poor phonetic gibberish (e.g., instead of "Upcount E", use "Pipa Duck / 琵琶鴨").` : ''}
     ${relationalContext ? `- IDENTITY RESOLUTION ALIAS MAP: Use the following Identity Map to perfectly understand relationships and entity names: ${relationalContext}\n    - CONVERSATIONAL NAMING RULE: Do NOT awkwardly repeat full 'Complete Names' (e.g., 'Albert Yi Lei', 'Tiffany Ann Lei') over and over. Use natural, conversational references (e.g., 'Albert', 'Tiffany', 'your dad', 'his son') just as a human would. Only use full names if formally introducing a new entity for the first time or if necessary for disambiguation. Use common sense to make the dialogue feel natural.` : ''}
+    ${systemOverrides ? `- ABSOLUTE SYSTEM OVERRIDES: The user has manually corrected you in the past regarding specific facts. The following user-supplied corrections are ABSOLUTE TRUTHS. If your retrieved context contradicts these laws, you MUST obey these laws: ${systemOverrides}` : ''}
     
     Context:
     "${transcriptContext}"
@@ -359,7 +429,13 @@ export interface HighFidelityStory {
   id: string;
   era: string;
   title: string;
+  orderIndex?: number;
+  timelessCategory?: string;
   synopsis: string;
+  detailedNarrative?: string;
+  sandersonAdaptation?: string;
+  updatedAt?: number;
+  sandersonGeneratedAt?: number;
   psychometrics: { label: string; val: number }[];
   rubric: {
     context: boolean;
@@ -397,9 +473,11 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
     Your task is to analyze the provided raw transcripts and extract distinct, high-fidelity narrative stories about the Main Subject.
     For each extracted story, output the following structured data:
     1. A short, compelling 'title'.
-    2. The chronological 'era'. You MUST map the era strictly to one of the following exact strings: "Childhood", "Teens", "Twenties", "Thirties", "Forties", "Fifties+", or "Timeless" (Use "Timeless" for generic life advice, recipes, philosophical beliefs, or non-chronological skills).
-    3. A concise 'synopsis' detailing the specific memory.
-    4. Exactly 6 'psychometrics'. You MUST output an array containing exactly these 6 labels representing the RIASEC model: "Realistic", "Investigative", "Artistic", "Social", "Enterprising", and "Conventional". Evaluate each between 0 and 100 based on how intensely the theme applies to the story (0 if not applicable).
+    2. The chronological 'era'. You MUST map the era strictly to one of the following exact strings: "Childhood", "Teens", "Twenties", "Thirties", "Forties", "Fifties+", or "Timeless". 
+       - If you output "Timeless", you MUST also assign a 'timelessCategory' string specifying the exact nature of the timeless knowledge (e.g., "Family Recipe", "Life Philosophy", "Core Values", "Professional Skill", "Tradition"). If the era is not "Timeless", omit this field.
+    3. A concise 'synopsis' containing a short 1-2 sentence hook or summary.
+    4. A 'detailedNarrative' containing an EXHAUSTIVELY detailed, multi-paragraph memoir-style recounting of the memory. You MUST write at least 3 to 5 robust paragraphs. Preserve every single factual detail, emotional nuance, timeline progression, name, and literal piece of dialogue from the transcript. Do NOT summarize or condense this field; paint a vivid, chronological, and comprehensive picture of the event just like a professional biography chapter.
+    5. Exactly 6 'psychometrics'. You MUST output an array containing exactly these 6 labels representing the RIASEC model: "Realistic", "Investigative", "Artistic", "Social", "Enterprising", and "Conventional". Evaluate each between 0 and 100 based on how intensely the theme applies to the story (0 if not applicable).
        - TWO-TIER WEIGHTING SYSTEM: You MUST aggressively weight the intensity of the RIASEC dimensions based on the 'primaryCategory' extraction you just mapped:
          > If Relational or Resilience -> heavily weight 'Social'.
          > If Achievement or Impact -> heavily weight 'Enterprising'.
@@ -408,11 +486,11 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
          > If Philosophical -> heavily weight 'Investigative'.
          > If Physicality -> heavily weight 'Realistic'.
          > If Competence -> weight Realistic, Investigative, or Conventional depending on the task type (hand-skill vs theory vs records).
-    5. A completeness 'rubric' containing 3 booleans tracking if the story explicitly contains:
+    6. A completeness 'rubric' containing 3 booleans tracking if the story explicitly contains:
        - 'context': Does it establish the setting and background?
        - 'conflict': Is there a clear challenge, pivot, or escalation?
        - 'resolution': Is the outcome explained?
-    6. An 'extraction' object analyzing the lesson or moral using a 0-3 Depth Scale. Use the following Step-by-Step Identification Procedure:
+    7. An 'extraction' object analyzing the lesson or moral using a 0-3 Depth Scale. Use the following Step-by-Step Identification Procedure:
        - Locate the Reflection: Ignore the "Action" of the story. Focus only on the narrator's "Post-Event Commentary."
        - Apply the Elimination Filter to assign a 'primaryCategory' and a distinct 'secondaryCategory'. MUST strictly be one of these exact strings: "Resilience", "Relational", "Philosophical", "Competence", "Self-Awareness", "Regret", "Achievement", "Impact", "Stewardship", "Expression", "Physicality", or "None" (if level 0).
          > If getting back up/endurance -> Resilience.
@@ -431,13 +509,13 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
        - 'insightSummary': A concise summary explaining the narrator's personal subjective realization.
        - 'legacyLesson': The Transferable Wisdom. Convert the narrator's specific experience into a generalized universal truth.
        - 'rawQuote': An exact, verbatim quote from the transcript demonstrating this extraction (or an empty string if none exists).
-    7. LINGUISTIC CORRECTIONS: The narrator's cultural heritage/language background is: ${culturalContext || "Unknown"}. If the English transcript contains phonetically misspelled foreign words (e.g., Cantonese or Mandarin words rendered incorrectly into broken English by the audio transcriber), use your linguistic knowledge to intelligently deduce the intended word. Add each correction to the 'linguisticCorrections' array.
-    8. Calculate the 'impact_metadata' containing three core properties that assign gravitational weight to this specific story in the database:
+    8. LINGUISTIC CORRECTIONS: The narrator's cultural heritage/language background is: ${culturalContext || "Unknown"}. If the English transcript contains phonetically misspelled foreign words (e.g., Cantonese or Mandarin words rendered incorrectly into broken English by the audio transcriber), use your linguistic knowledge to intelligently deduce the intended word. Add each correction to the 'linguisticCorrections' array.
+    9. Calculate the 'impact_metadata' containing three core properties that assign gravitational weight to this specific story in the database:
        - 'emotional_intensity' (1-5 scale): Score Intensity 1-2 (Snapshot): Casual mentions, low emotional stakes, routine events. Score 3-4 (Pivot): Significant life changes, clear conflict, emotional vulnerability, lessons learned. Score 5 (Core): Life-defining moments, extreme hardship/success, fundamental shifts in identity.
        - 'narrative_complexity' (1-5 scale): How intricate is the sequence of events and decision making?
        - 'duration_weight' (1.0 to 2.0 scale): Evaluate the raw verbosity and detail of this specific event in the transcript. 1.0 for brief mentions, 1.5 for dedicated paragraphs, 2.0 for exhaustive, multi-paragraph sagas.
-    9. Extract any unique names of people explicitly mentioned in the story into the 'peopleMentioned' string array.
-    10. 'gapPrompt': If this story lacks a mature extraction ('present' is false or 'depthLevel' <= 1), generate a highly customized, unique question about this SPECIFIC story that challenges the narrator to find the overarching moral lesson. Do NOT use generic/repetitive language formatting. Directly reference the specific names and concrete events of this story to formulate a probing question bridging the literal event to a universal truth.
+    10. Extract any unique names of people explicitly mentioned in the story into the 'peopleMentioned' string array.
+    11. 'gapPrompt': If this story lacks conflict, lacks a clear resolution, lacks sufficient contextual details, OR lacks a mature extraction ('present' is false), it is considered incomplete. If incomplete, generate a highly customized, unique question about this SPECIFIC story that challenges the narrator to fill in those missing elements to make a complete story. Do NOT use generic/repetitive language formatting. Directly reference the specific names and concrete events of this story to formulate a probing question seeking the missing context, conflict, resolution, or overarching moral lesson.
     ${relationalContext ? `CRITICAL RELATIONAL CONTEXT: Normalize and refer to individuals using the following Identity Map when generating synopses and labels: ${relationalContext}` : ''}
 
     Extract 1 to 3 highly granular, profoundly distinct thematic events from this specific chunk of text. Do NOT lazily merge multiple life events into a single generalized card. Demand granularity. Do not hallucinate events that are not explicitly in the text.
@@ -458,8 +536,10 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
             properties: {
               id: { type: Type.STRING },
               era: { type: Type.STRING },
+              timelessCategory: { type: Type.STRING },
               title: { type: Type.STRING },
               synopsis: { type: Type.STRING },
+              detailedNarrative: { type: Type.STRING },
               psychometrics: {
                 type: Type.ARRAY,
                 items: {
@@ -560,8 +640,8 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
     Your task:
     1. Read the newly extracted raw stories.
     2. Determine if the events described in the raw stories fall into the context of any EXISTING stories.
-       - If YES: MERGE them. UPDATE the existing story. You can rewrite the 'synopsis' to include the new robust details, drastically update the 'psychometrics' based on the newly merged context, and update the 'rubric' booleans. Remove the 'gapPrompt' if 'extraction' becomes true. If 'extraction' remains false, completely REWRITE the 'gapPrompt' to explicitly reference the newly synthesized narrative details and ask a highly specific, penetrating question to prompt the narrator for a deeper moral lesson.
-       - If NO: CREATE entirely new story objects and APPEND them to the array. Do not lazily summarize them; preserve their granularity. If 'extraction' is false, generate a highly specific, context-aware 'gapPrompt' referencing literal story events.
+       - If YES: MERGE them. UPDATE the existing story. You MUST rewrite the 'detailedNarrative' to cleanly and EXHAUSTIVELY integrate all new robust facts and dialogue from the new story into the master narrative. Ensure the resulting 'detailedNarrative' is a massive, multi-paragraph memoir (3+ paragraphs). You can rewrite the 'synopsis' if the core hook changes, drastically update the 'psychometrics' based on the newly merged context, and update the 'rubric' booleans. Remove the 'gapPrompt' if the rubric and extraction becomes fully complete. If any elements are missing (context, conflict, resolution, or extraction), completely REWRITE the 'gapPrompt' to explicitly reference the newly synthesized narrative details and ask a highly specific, penetrating question to prompt the narrator for the missing elements to complete the story.
+       - If NO: CREATE entirely new story objects and APPEND them to the array. Do not lazily summarize them; preserve their granularity. If the story lacks context, conflict, resolution, or extraction, generate a highly specific, context-aware 'gapPrompt' referencing literal story events seeking the missing elements.
     3. Ensure ALL stories (existing and new) strictly adhere to the previously defined format. 
        - 'era' MUST strictly be "Childhood", "Teens", "Twenties", "Thirties", "Forties", "Fifties+", or "Timeless" (Use "Timeless" for generic themes, recipes, and life philosophies).
     4. LINGUISTIC CORRECTIONS: The narrator's cultural heritage/language background is: ${culturalContext || "Unknown"}. If the synopses contain phonetically misspelled foreign words, intelligently deduce the intended word and log it to 'linguisticCorrections'.
@@ -597,6 +677,7 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
               era: { type: Type.STRING },
               title: { type: Type.STRING },
               synopsis: { type: Type.STRING },
+              detailedNarrative: { type: Type.STRING },
               psychometrics: {
                 type: Type.ARRAY,
                 items: {
@@ -680,7 +761,7 @@ export async function recompileHighFidelityStories(cachedStories: HighFidelitySt
     2. Normalize ALL mentions inside the 'title' and 'synopsis' fields strictly following the Identity Map provided below. Replace all invalid aliases with the canonical 'Complete Name'.
     3. Update the 'peopleMentioned' string array to reflect only the canonical names.
     4. Do not alter 'id', 'era', 'psychometrics', or 'rubric'.
-    5. CRITICAL GAP PROMPT BACKFILL: If an existing story is missing an explicit 'gapPrompt' OR if its current extraction is weak (depthLevel <= 1), you MUST actively backfill and generate a highly customized 'gapPrompt' that challenges the narrator to find the overarching moral lesson. Directly reference the specific literal events and canonical names from the synopsis. Do NOT use generic/repetitive language.
+    5. CRITICAL GAP PROMPT BACKFILL: If an existing story is missing an explicit 'gapPrompt' AND it lacks context, conflict, resolution, or a mature extraction, you MUST actively backfill and generate a highly customized 'gapPrompt'. The prompt must challenge the narrator to provide the missing elements to make a complete story. Directly reference the specific literal events and canonical names from the synopsis. Do NOT use generic/repetitive language.
     
     CRITICAL RELATIONAL CONTEXT: Normalize to this Identity Map: ${relationalContext}
     
@@ -989,3 +1070,90 @@ export async function extractDemographicsFromTranscript(transcriptText: string):
   return {};
 }
 
+export async function generateSandersonAdaptation(story: HighFidelityStory, editorialNotes?: string): Promise<string> {
+  const prompt = `
+### System Prompt: The Realistic Sanderson Storyteller
+
+**Agent Persona:** You are an expert narrative architect and master storyteller trained in the specific writing philosophies of Brandon Sanderson, as well as core cognitive storytelling principles. 
+
+**Objective:** Transform raw biographical data, interviews, or daily reflections into a compelling, realistic epic. You will treat real-world skills as "hard magic systems," focus heavily on character limitations, and use strict cause-and-effect plotting, while keeping the narrative grounded in reality (no supernatural elements).
+
+#### Core Processing Instructions
+
+**1. The "Hard Skill" System (Applying Sanderson's First Law)**
+*   **Directive:** Treat the protagonist's primary skill (e.g., a sport, a profession, a hobby) like a "Hard Magic" system. 
+*   **Action:** Explicitly define the physical rules, mechanics, and training required to master this skill. Do not simply say a character is "good" at something; explain the leverage, the muscle memory, or the specific technique involved. The reader must understand how the "magic" works so that when the character uses it to solve a problem later, it feels earned.
+
+**2. Limitations Over Powers (Applying Sanderson's Second Law)**
+*   **Directive:** Focus on what the character *cannot* do. Flaws, restrictions, and limitations are far more interesting than a character's strengths. 
+*   **Action:** Identify the protagonist's specific limitation (e.g., they lack finesse, they are too small, they are easily exhausted). The character must not magically overcome this limitation; instead, they must lean into it and find a gritty, creative workaround to succeed *despite* it.
+
+**3. The CPR Character Framework**
+*   **Directive:** Ensure the protagonist hits the three sliding scales of CPR: Capable, Proactive, and Relatable.
+*   **Action:** 
+    *   *Capable:* Give them a highly specific area of expertise.
+    *   *Proactive:* They must make choices that drive the plot forward. If they are trapped, they must at least try to plan or train.
+    *   *Relatable:* Give them a struggle (e.g., isolation, cruelty, a "sacred flaw") that instantly generates audience empathy.
+
+**4. Promise, Progress, Payoff (PPP Plotting)**
+*   **Directive:** Structure the narrative arc around these three beats.
+*   **Action:**
+    *   *Promise:* Start the story at the exact emotional opposite of the ending realization. If the story ends in acceptance, it must begin with a promise of isolation.
+    *   *Progress:* Show the character attempting to reach their goal through "try/fail cycles". They must face obstacles, try the most intelligent solution, and fail due to their limitations, forcing them to adapt. Connect all scenes with "but" and "therefore" cause-and-effect logic.
+    *   *Payoff:* Deliver a "stand-up-and-cheer" moment where the internal character growth aligns with the external physical victory. 
+
+**5. The Apprentice Arc**
+*   **Directive:** Whenever a mentor figure is present, utilize the apprentice arc.
+*   **Action:** Show the protagonist learning the foundational "rules" from a master, but ultimately diverging. The protagonist must face a challenge the master cannot solve, forcing them to apply the skills in a uniquely personal, specialized way.
+
+**6. The Pyramid of Abstraction (Sensory Grounding)**
+*   **Directive:** Avoid abstract summaries and "navel-gazing" (e.g., "He felt sad and alienated"). 
+*   **Action:** Pull the reader down the "pyramid of abstraction" by anchoring every scene in concrete, sensory details first (e.g., the heavy thud of a ball, the smell of rain, the rough texture of wool). Only after establishing these concrete physical anchors should you move upward into the character's abstract internal thoughts.
+
+**7. The Five-Second Moment**
+*   **Directive:** Funnel the entire story toward a singular climax of realization.
+*   **Action:** Discard unnecessary chronological reporting. Identify the "five-second moment"—the exact instant the protagonist's heart moved and their perspective fundamentally changed. Every detail in the story must exist solely to make this final realization hit as hard as possible. **CRITICAL: DO NOT explicitly use the phrases "five-second moment" or "in that moment" in the prose. The reader must feel the realization through the action, not be told about it.**
+
+#### Formatting & Output Guidelines
+1.  **Tone:** Epic, gritty, yet ultimately hopeful. The tone should feel like high fantasy translated into real-world physics.
+2.  **Cinematic Immediacy:** Start as close to the ending as possible. Use vivid, immediate action to open the story.
+3.  **Output Strict Markdown:** Output ONLY the markdown text of the story chapters. Do not include markdown headers like "\`\`\`markdown".
+4.  **Zero Hallucinated Proper Nouns:** You MUST NOT invent any specific names for people, places, or businesses if they are not explicitly mentioned in the source material. If the name of a character's wife is not provided, simply use "his wife" or "she" rather than inventing a name like "Mary".
+
+---
+**Input Story Data:**
+Title: ${story.title}
+Era: ${story.era}
+Synopsis: ${story.synopsis}
+Detailed Narrative / Raw Transcript Context: ${story.detailedNarrative || "N/A"}
+Extracted Lesson/Realization: ${story.extraction?.legacyLesson || "N/A"}
+
+${editorialNotes ? `
+---
+### CRITICAL EDITORIAL REVISION
+The user has reviewed a previous draft of this chapter and provided the following mandatory correction notes. You MUST rewrite the chapter specifically addressing and fixing the issue noted below:
+**Feedback:**
+${editorialNotes}
+---
+` : ''}
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        temperature: 0.8
+      }
+    });
+
+    if (response.text) {
+      let raw = response.text;
+      if (typeof raw === "function") raw = (raw as any)();
+      return raw.replace(/^\`\`\`markdown/, '').replace(/\`\`\`$/, '').trim();
+    }
+  } catch (error) {
+    console.error("Failed to generate Sanderson adaptation:", error);
+  }
+  return "Failed to adapt story.";
+}

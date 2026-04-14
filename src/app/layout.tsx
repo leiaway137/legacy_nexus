@@ -7,6 +7,8 @@ export const metadata: Metadata = {
 };
 
 import { AuthProvider } from "@/components/AuthProvider";
+import { BackgroundJobProvider } from "@/components/BackgroundJobProvider";
+import { GlobalHeader } from "@/components/GlobalHeader";
 
 export default function RootLayout({
   children,
@@ -15,8 +17,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full antialiased font-sans">
-      <body className="min-h-full flex flex-col">
-        <AuthProvider>{children}</AuthProvider>
+      <body className="h-screen flex flex-col overflow-hidden bg-[#F4F1EA] dark:bg-[#111111]">
+        <BackgroundJobProvider>
+          <AuthProvider>
+            <GlobalHeader />
+            <main className="flex-1 overflow-y-auto relative no-scrollbar flex flex-col">
+              {children}
+            </main>
+          </AuthProvider>
+        </BackgroundJobProvider>
       </body>
     </html>
   );

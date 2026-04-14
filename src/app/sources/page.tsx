@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, FileText, Trash2, Database, Clock, Bot } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { fetchUserSources, deleteNotebookSource, NotebookSource, saveHighFidelityStories, saveChatHistory } from "@/lib/firebase/db";
-import { deleteAllPineconeResourcesAction, deletePineconeSourceAction, extractHighFidelityStoriesAction } from "@/app/actions";
+import { deleteAllPineconeResourcesAction, embedStoriesToPineconeAction, extractHighFidelityStoriesAction } from "@/app/actions";
 
 export default function SourcesPage() {
   const { user, loading } = useAuth();
@@ -32,18 +32,16 @@ export default function SourcesPage() {
 
         await deleteNotebookSource(targetSource.id);
 
-        if (newSources.length === 0) {
-            await deleteAllPineconeResourcesAction(user.uid);
-        } else {
-            await deletePineconeSourceAction(user.uid, targetSource.id);
-        }
-
         if (newSources.length > 0) {
             const vaultContext = newSources.map(s => `[Source: ${s.fileName}]\n${s.textContent}`).join("\n\n");
             const recompiled = await extractHighFidelityStoriesAction(vaultContext);
             await saveHighFidelityStories(user.uid, recompiled);
+
+            await deleteAllPineconeResourcesAction(user.uid);
+            await embedStoriesToPineconeAction(user.uid, "nexus-vault", recompiled);
         } else {
             await saveHighFidelityStories(user.uid, []);
+            await deleteAllPineconeResourcesAction(user.uid);
         }
     } catch (e) {
         console.error("Failed to delete source:", e);

@@ -159,12 +159,8 @@ export default function ProgressPage() {
   if (!user) return <div className="min-h-screen bg-[#F6F5F0] dark:bg-zinc-950 px-4"><LoginModule /></div>;
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[#0a0a0a] text-zinc-900 dark:text-zinc-100 font-sans p-6 md:p-12 overflow-y-auto">
-      <div className="max-w-5xl mx-auto space-y-8">
-        
-        <Link href="/" className="inline-flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">
-          <ArrowLeft size={16} /> Back to Dashboard
-        </Link>
+    <div className="h-full bg-zinc-50 dark:bg-[#0a0a0a] text-zinc-900 dark:text-zinc-100 font-sans p-6 md:p-12 overflow-y-auto no-scrollbar">
+      <div className="max-w-5xl mx-auto space-y-8 mt-4">
 
         {/* Header Block */}
         <div className="border-b border-zinc-200 dark:border-zinc-800 pb-8 flex flex-col gap-3">

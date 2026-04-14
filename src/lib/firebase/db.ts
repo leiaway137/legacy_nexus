@@ -90,6 +90,52 @@ export interface NotebookSource {
   isSynced?: boolean; // Whether the RAG loop has already processed this source into HighFidelity stories
 }
 
+export interface AudioPodcast {
+  id: string;
+  userId: string;
+  title: string;
+  subject: string;
+  durationOption: string;
+  transcript: {
+    speaker: "Host 1" | "Host 2";
+    text: string;
+  }[];
+  createdAt: Date | any;
+}
+
+export async function saveAudioPodcast(userId: string, podcast: Omit<AudioPodcast, 'id' | 'createdAt' | 'userId'>): Promise<string | null> {
+  try {
+    const docRef = await addDoc(collection(db, "podcasts"), {
+      ...podcast,
+      userId,
+      createdAt: serverTimestamp()
+    });
+    return docRef.id;
+  } catch (e) {
+    console.error("Failed to save podcast:", e);
+    return null;
+  }
+}
+
+export async function fetchAudioPodcasts(userId: string): Promise<AudioPodcast[]> {
+  try {
+    const q = query(
+      collection(db, "podcasts"),
+      where("userId", "==", userId)
+    );
+    const snap = await getDocs(q);
+    const docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AudioPodcast));
+    return docs.sort((a, b) => {
+        const aTime = a.createdAt?.seconds || 0;
+        const bTime = b.createdAt?.seconds || 0;
+        return bTime - aTime;
+    });
+  } catch (e) {
+    console.error("Failed to fetch podcasts:", e);
+    return [];
+  }
+}
+
 export async function uploadNotebookSource(userId: string, fileName: string, fileSize: number, textContent: string): Promise<NotebookSource | null> {
   try {
     const sourcesRef = collection(db, "user_sources");
@@ -164,6 +210,7 @@ export interface UserProfile {
   culturalHeritage?: string;
   primaryLanguage?: string;
   secondaryLanguages?: string;
+  userOverrides?: string[];
   trustScore?: number;
   updatedAt?: any;
 }
@@ -237,6 +284,7 @@ export interface Contact {
   userId: string;
   originalName: string; // Original name from transcript (or import label)
   completeName: string; // Corrected/Full name dynamically concatenated
+  preferredName?: string; // Explicit name for AI narrator to use
   firstName?: string;
   middleName?: string;
   lastName?: string;

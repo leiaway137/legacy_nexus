@@ -1,0 +1,2447 @@
+diff --git a/src/app/actions.ts b/src/app/actions.ts
+index 6f7d38a..57fd619 100644
+--- a/src/app/actions.ts
++++ b/src/app/actions.ts
+@@ -1,6 +1,6 @@
+ "use server";
+ 
+-import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive, extractDemographicsFromTranscript } from "@/lib/rag";
++import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive, extractDemographicsFromTranscript, generateSandersonAdaptation, generatePodcastTranscript } from "@/lib/rag";
+ import { getPineconeIndex } from "@/lib/pinecone/client";
+ // @ts-ignore - Bypass Turbopack static ESM export resolution
+ import pdfParseModule from "pdf-parse/lib/pdf-parse.js";
+@@ -30,6 +30,16 @@ export async function generateQuestionsAction(context: string): Promise<string[]
+   }
+ }
+ 
++export async function generatePodcastTranscriptAction(context: string, focusArea: string, durationOption: string): Promise<{speaker: "Host 1" | "Host 2", text: string}[]> {
++  try {
++    return await generatePodcastTranscript(context, focusArea, durationOption);
++  } catch (error) {
++    console.error("Failed to generate podcast:", error);
++    return [];
++  }
++}
++
++
+ export async function reduceDashboardOverviewAction(currentOverview: DashboardOverview | null, newTranscript: string, mainSubjectName?: string): Promise<DashboardOverview | null> {
+   try {
+     return await reduceDashboardOverview(currentOverview, newTranscript, mainSubjectName);
+@@ -67,43 +77,44 @@ export async function uploadAndExtractAction(formData: FormData): Promise<string
+   }
+ }
+ 
+-export async function embedAndUpsertToPineconeAction(userId: string, sourceId: string, text: string): Promise<boolean> {
++export async function embedStoriesToPineconeAction(userId: string, sourceId: string, stories: HighFidelityStory[]): Promise<boolean> {
+   try {
+     const index = getPineconeIndex();
+-    
+-    // 0. Autonomously deduce the relational perspective of this specific document
+-    const perspectiveTag = await identifyDocumentPerspective(text);
+-    console.log(`[RAG Metadata Injection] Extracted Perspective: ${perspectiveTag}`);
+-    
+-    // 1. Simple chunking strategy (split by double newlines or roughly 1000 characters)
+-    const rawChunks = text.split(/\n\s*\n/).filter(c => c.trim().length > 50);
+     const vectors = [];
+     
+-    // Batch process in chunks of 50 to avoid any Gemini API payload maximum limits and 15 RPM bottleneck
+     const BATCH_LIMIT = 50;
+-    for (let i = 0; i < rawChunks.length; i += BATCH_LIMIT) {
+-        const batchTexts = rawChunks.slice(i, i + BATCH_LIMIT);
++    for (let i = 0; i < stories.length; i += BATCH_LIMIT) {
++        const batchStories = stories.slice(i, i + BATCH_LIMIT);
++        
++        const batchTexts = batchStories.map(story => {
++           let baseText = `[Legacy Entry]\nTitle: ${story.title}\nEra: ${story.era}\nSynopsis: ${story.synopsis}\nLegacy Lesson: ${story.extraction.legacyLesson}\nThemes: ${story.psychometrics.map(p => `${p.label} (${p.val})`).join(', ')}\nPeople Mentioned: ${(story.peopleMentioned || []).join(', ')}`;
++           if (story.linguisticCorrections && story.linguisticCorrections.length > 0) {
++               baseText += `\nTranslations: ${story.linguisticCorrections.map(c => `Original audio '${c.original}' likely means '${c.guess}' (${c.meaning})`).join(' | ')}`;
++           }
++           return baseText;
++        });
++        
+         const embeddedBatches = await generateBatchTextMappings(batchTexts);
+         
+         for (let j = 0; j < embeddedBatches.length; j++) {
+             const embeddingData = embeddedBatches[j];
+             if (embeddingData && embeddingData.length === 3072) {
+                vectors.push({
+-                  id: `${sourceId}-chunk-${i + j}`,
++                  id: `story-${batchStories[j].id}`,
+                   values: embeddingData,
+                   metadata: {
+                      text: batchTexts[j],
+                      sourceId: sourceId,
+-                     perspective: perspectiveTag
++                     era: batchStories[j].era,
++                     perspective: "Synthesized Legacy Content"
+                   }
+                });
+             }
+         }
+     }
+     
+-    // 2. Upsert vectors in batches to Pinecone using the userId as a security namespace!
++    // Upsert vectors in batches to Pinecone using the userId as a security namespace!
+     if (vectors.length > 0) {
+-       // Pinecone upsert limit is usually 100 per API request
+        const batchSize = 100;
+        for (let i = 0; i < vectors.length; i += batchSize) {
+           const batch = vectors.slice(i, i + batchSize);
+@@ -113,43 +124,12 @@ export async function embedAndUpsertToPineconeAction(userId: string, sourceId: s
+     
+     return true;
+   } catch (error) {
+-    console.error("Failed to embed and upsert to Pinecone:", error);
++    console.error("Failed to embed stories and upsert to Pinecone:", error);
+     return false;
+   }
+ }
+ 
+-export async function deletePineconeSourceAction(userId: string, sourceId: string): Promise<boolean> {
+-  try {
+-    const index = getPineconeIndex();
+-    const ns = index.namespace(userId);
+-    
+-    // Pinecone Serverless DOES NOT support deleting by metadata filter natively (404 Error).
+-    // We must paginate through the namespace using the secure ID prefix and delete explicitly by IDs.
+-    let paginationToken = undefined;
+-    
+-    // Safety break to prevent infinite loops
+-    let pages = 0;
+-    
+-    do {
+-       //@ts-ignore - dynamic properties
+-       const results = await ns.listPaginated({ prefix: sourceId, paginationToken });
+-       
+-       if (results && results.vectors && results.vectors.length > 0) {
+-           const idsToDelete = results.vectors.map(v => v.id);
+-           await ns.deleteMany(idsToDelete);
+-       }
+-       
+-       paginationToken = results?.pagination?.next;
+-       pages++;
+-    } while (paginationToken && pages < 100);
+-    
+-    console.log(`[Pinecone GC] Scrubbed all vectors for source: ${sourceId}`);
+-    return true;
+-  } catch (error) {
+-    console.error("Failed to delete from Pinecone:", error);
+-    return false;
+-  }
+-}
++
+ 
+ export async function deleteAllPineconeResourcesAction(userId: string): Promise<boolean> {
+   try {
+@@ -262,3 +242,7 @@ export async function extractDemographicsAction(transcript: string): Promise<Rec
+     return {};
+   }
+ }
++
++export async function generateSandersonChapterAction(story: HighFidelityStory, editorialNotes?: string): Promise<string> {
++  return await generateSandersonAdaptation(story, editorialNotes);
++}
+diff --git a/src/app/api/chat/route.ts b/src/app/api/chat/route.ts
+index 8293a04..aee0bc7 100644
+--- a/src/app/api/chat/route.ts
++++ b/src/app/api/chat/route.ts
+@@ -5,7 +5,7 @@ import { getPineconeIndex } from '@/lib/pinecone/client';
+ export const dynamic = 'force-dynamic';
+ export async function POST(req: Request) {
+   try {
+-    const { userId, question, history, linguisticContext, relationalContext } = await req.json();
++    const { userId, question, history, linguisticContext, relationalContext, systemOverrides } = await req.json();
+ 
+     if (!userId || !question) {
+        return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
+@@ -36,7 +36,7 @@ export async function POST(req: Request) {
+        .filter(text => text.length > 0)
+        .join("\n\n---\n\n");
+ 
+-    const stream = await chatWithLegacyStream(dynamicContext, question, history || [], linguisticContext, relationalContext);
++    const stream = await chatWithLegacyStream(dynamicContext, question, history || [], linguisticContext, relationalContext, systemOverrides);
+     
+     // Return a streaming response back to the client natively!
+     return new Response(stream, {
+diff --git a/src/app/contacts/page.tsx b/src/app/contacts/page.tsx
+index 08df044..4a2c5cc 100644
+--- a/src/app/contacts/page.tsx
++++ b/src/app/contacts/page.tsx
+@@ -3,8 +3,9 @@
+ import React, { useState, useEffect, useRef, useMemo } from "react";
+ import Link from "next/link";
+ import { motion, AnimatePresence } from "framer-motion";
+-import { ArrowLeft, User, Mail, ShieldCheck, Phone, Edit3, Trash2, Search, Upload, RefreshCw, Loader2, Quote, Sparkles } from "lucide-react";
++import { ArrowLeft, User, Mail, ShieldCheck, Phone, Edit3, Trash2, Search, Upload, RefreshCw, Loader2, Quote, Sparkles, Star } from "lucide-react";
+ import { useAuth } from "@/components/AuthProvider";
++import { useBackgroundJobs } from "@/components/BackgroundJobProvider";
+ import { fetchContacts, saveContact, deleteContact, fetchUserSources, Contact, NotebookSource } from "@/lib/firebase/db";
+ import { parseCSV, parseVCF, correlateContacts } from "@/lib/contacts";
+ import { fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/firebase/db";
+@@ -28,6 +29,7 @@ const getContextSnippet = (sources: NotebookSource[] | undefined, name: string):
+ 
+ export default function ContactsPage() {
+   const { user, loading } = useAuth();
++  const { startJob } = useBackgroundJobs();
+   
+   const [contacts, setContacts] = useState<Contact[]>([]);
+   const [sources, setSources] = useState<NotebookSource[]>([]);
+@@ -137,52 +139,49 @@ export default function ContactsPage() {
+ 
+   const [syncStatus, setSyncStatus] = useState<string>("Aligning...");
+ 
+-  const handleBulkCommit = async () => {
++  const handleBulkCommit = () => {
+     if (!user) return;
+-    setIsCommitingBulk(true);
+-    setSyncStatus("Fetching existing timeline...");
+-    try {
+-      const currentStories = await fetchHighFidelityStories(user.uid);
+-      if (!currentStories) throw new Error("Firebase returned undefined for currentStories");
+-      
+-      const relationalContext = "Identity Map & Relationships: " + contacts.map(c => 
+-          `'${c.originalName}', '${c.aliases.join("', '")}' -> ${c.completeName}` + 
+-          (c.relationship ? ` (Relationship to narrator: ${c.relationship})` : '')
+-      ).join(" | ");
+-      
+-      const batchSize = 1;
+-      let updatedStories: any[] = [];
+-      const totalBlocks = Math.ceil(currentStories.length / batchSize);
+-      
+-      for (let i = 0; i < currentStories.length; i += batchSize) {
+-         const currentBlock = Math.floor(i / batchSize) + 1;
+-         setSyncStatus(`Aligning Timeline (${currentBlock}/${totalBlocks})...`);
+-         
+-         const batch = currentStories.slice(i, i + batchSize);
+-         try {
+-            const resBatch = await recompileStoriesWithContactsAction(batch, relationalContext);
+-            updatedStories = [...updatedStories, ...(resBatch || batch)];
+-         } catch (batchErr: any) {
+-            throw new Error(`Server Action failed on block ${currentBlock}: ${batchErr.message || String(batchErr)}`);
+-         }
+-         
+-         if (i + batchSize < currentStories.length) {
+-            await new Promise(res => setTimeout(res, 2000));
+-         }
+-      }
+-      
+-      setSyncStatus("Saving updated timeline to Firebase...");
+-      const saved = await saveHighFidelityStories(user.uid, updatedStories);
+-      if (!saved) throw new Error("Firebase save transaction rejected the write.");
+-      
+-      alert("Timeline successfully realigned using the Address Book details!");
+-    } catch(err: any) {
+-      console.error(err);
+-      alert("CRASH: " + (err instanceof Error ? err.message : String(err)));
+-    } finally {
+-      setIsCommitingBulk(false);
+-      setSyncStatus("Aligning...");
+-    }
++    
++    // Fire and forget the background job. UI immediately frees up.
++    startJob("Aligning Timeline", async (updateProgress) => {
++        updateProgress("Fetching existing timeline...", 0, 100);
++        const currentStories = await fetchHighFidelityStories(user.uid);
++        if (!currentStories) throw new Error("Firebase returned undefined for currentStories");
++        
++        const relationalContext = "Identity Map & Relationships: " + contacts.map(c => 
++            `'${c.originalName}', '${c.aliases.join("', '")}' -> ${c.completeName}` + 
++            (c.preferredName ? ` [CRITICAL INSTRUCTION: When rewriting stories, ALWAYS use the preferred name: '${c.preferredName}' for this entity]` : '') +
++            (c.relationship ? ` (Relationship to narrator: ${c.relationship})` : '')
++        ).join(" | ");
++        
++        const batchSize = 1;
++        let updatedStories: any[] = [];
++        const totalBlocks = Math.ceil(currentStories.length / batchSize);
++        
++        for (let i = 0; i < currentStories.length; i += batchSize) {
++           const currentBlock = Math.floor(i / batchSize) + 1;
++           const percentRaw = Math.round((currentBlock / totalBlocks) * 100);
++           updateProgress(`Re-writing Chapter (${currentBlock}/${totalBlocks})...`, percentRaw, 100);
++           
++           const batch = currentStories.slice(i, i + batchSize);
++           try {
++              const resBatch = await recompileStoriesWithContactsAction(batch, relationalContext);
++              updatedStories = [...updatedStories, ...(resBatch || batch)];
++           } catch (batchErr: any) {
++              throw new Error(`Server Action failed on block ${currentBlock}: ${batchErr.message || String(batchErr)}`);
++           }
++           
++           if (i + batchSize < currentStories.length) {
++              await new Promise(res => setTimeout(res, 2000));
++           }
++        }
++        
++        updateProgress("Saving updated timeline to Firebase...", 99, 100);
++        const saved = await saveHighFidelityStories(user.uid, updatedStories);
++        if (!saved) throw new Error("Firebase save transaction rejected the write.");
++        
++        updateProgress("Timeline safely realigned using network data!", 100, 100);
++    });
+   };
+ 
+   const saveEdit = async () => {
+@@ -200,6 +199,14 @@ export default function ContactsPage() {
+       setEditingData(null);
+   };
+ 
++  const handleSetPreferredName = async (nameToPrefer: string) => {
++      if (!user || !activeContact) return;
++      const finalVal = activeContact.preferredName === nameToPrefer ? "" : nameToPrefer;
++      const updated = { ...activeContact, preferredName: finalVal };
++      await saveContact(user.uid, updated);
++      setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
++  };
++
+   const mergeDuplicates = async () => {
+       if (!user || !activeContact || potentialDuplicates.length === 0) return;
+       setIsCommitingBulk(true);
+@@ -255,14 +262,11 @@ export default function ContactsPage() {
+   if (loading) return <div className="p-8 text-center"><Loader2 className="animate-spin mx-auto text-zinc-400" /></div>;
+ 
+   return (
+-    <div className="flex flex-col h-screen bg-zinc-50 dark:bg-zinc-950 overflow-hidden font-sans">
++    <div className="flex flex-col h-full bg-zinc-50 dark:bg-zinc-950 overflow-hidden font-sans">
+       
+       {/* Header */}
+       <header className="flex-shrink-0 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+-             <Link href="/" className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition text-zinc-500">
+-               <ArrowLeft size={20} />
+-             </Link>
+              <div>
+                 <h1 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-zinc-100">
+                    Address Book
+@@ -286,9 +290,9 @@ export default function ContactsPage() {
+                {isImporting ? <Loader2 className="animate-spin" size={14}/> : <Upload size={14}/>}
+                {isImporting ? "Processing..." : "Import"}
+              </button>
+-             <button disabled={isCommitingBulk || contacts.length === 0} onClick={handleBulkCommit} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50">
+-               {isCommitingBulk ? <Loader2 className="animate-spin" size={14}/> : <RefreshCw size={14}/>}
+-               {isCommitingBulk ? syncStatus : "Commit Ties to Timeline"}
++             <button disabled={contacts.length === 0} onClick={handleBulkCommit} title="Runs safely in the background" className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50">
++               <RefreshCw size={14}/>
++               Commit Ties to Timeline
+              </button>
+          </div>
+       </header>
+@@ -312,10 +316,15 @@ export default function ContactsPage() {
+                                       onClick={() => { setActiveContactId(c.id); setEditingData(null); setActiveTab('profile'); }}
+                                       className={`px-3 py-2 cursor-pointer flex items-center justify-between rounded-lg transition ${activeContactId === c.id ? 'bg-indigo-600 text-white' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200'}`}
+                                    >
+-                                      <div className="flex flex-col">
+-                                         <span className="font-semibold text-sm">
+-                                            {c.lastName ? `${c.lastName}, ${c.firstName || ''}` : (c.completeName || c.originalName)}
+-                                         </span>
++                                      <div className="flex flex-col flex-1 truncate">
++                                         <div className="flex items-center gap-1.5">
++                                             <span className="font-semibold text-sm truncate">
++                                                {c.lastName ? `${c.lastName}, ${c.firstName || ''}` : (c.completeName || c.originalName)}
++                                             </span>
++                                             {Boolean(c.firstName && c.lastName && (c.preferredName || c.aliases?.length > 0)) && (
++                                                <ShieldCheck size={14} className={activeContactId === c.id ? "text-indigo-200 fill-indigo-400" : "text-emerald-500 fill-emerald-100 dark:fill-emerald-900"} title="Verified Identity" />
++                                             )}
++                                         </div>
+                                          {c.relationship && (
+                                             <span className={`text-[10px] lowercase font-medium ${activeContactId === c.id ? 'text-indigo-200' : 'text-zinc-400'}`}>
+                                                 {c.relationship}
+@@ -336,16 +345,25 @@ export default function ContactsPage() {
+             </div>
+ 
+             {/* Strict iOS A-Z Scroller Tool */}
+-            <div className="absolute right-0 top-0 bottom-0 w-8 flex flex-col items-center justify-center gap-0.5 py-4 z-10 select-none">
+-                {ALPHABET.map(letter => (
+-                    <div 
+-                       key={letter} 
+-                       onClick={() => scrollToLetter(letter)}
+-                       className="text-[10px] font-bold text-indigo-500/60 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer w-full text-center hover:scale-125 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-transform"
+-                    >
+-                        {letter}
+-                    </div>
+-                ))}
++            <div className="absolute right-0 top-0 bottom-0 w-12 flex flex-col items-center justify-center gap-[1px] py-4 z-10 select-none">
++                {ALPHABET.map(letter => {
++                    const count = groupedContacts[letter]?.length || 0;
++                    return (
++                        <div 
++                           key={letter} 
++                           onClick={() => count > 0 && scrollToLetter(letter)}
++                           className={`flex items-center gap-0.5 text-[9px] cursor-pointer w-full justify-center px-1 py-[2px] rounded-sm transition-transform ${
++                               count > 0 
++                               ? "font-bold text-indigo-600 dark:text-indigo-400 hover:scale-125 hover:bg-slate-100 dark:hover:bg-slate-800" 
++                               : "font-medium text-zinc-300 dark:text-zinc-700"
++                           }`}
++                           title={count > 0 ? `${count} contacts` : 'No contacts'}
++                        >
++                            <span>{letter}</span>
++                            {count > 0 && <span className="opacity-60 text-[7px] tracking-tighter">[{count}]</span>}
++                        </div>
++                    );
++                })}
+             </div>
+          </div>
+ 
+@@ -470,6 +488,7 @@ export default function ContactsPage() {
+                                 {editingData ? (
+                                    <select value={editingData.relationship ?? activeContact.relationship ?? ''} onChange={e => setEditingData({...editingData, relationship: e.target.value})} className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded font-medium text-sm">
+                                       <option value="">Unknown</option>
++                                      <option value="Self">Self / Account Owner</option>
+                                       <optgroup label="Immediate Family">
+                                         <option value="Mother">Mother</option>
+                                         <option value="Father">Father</option>
+@@ -549,25 +568,40 @@ export default function ContactsPage() {
+                          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-sm">
+                              <h3 className="font-bold text-lg text-zinc-800 dark:text-zinc-200 border-b border-zinc-100 dark:border-zinc-800 pb-3 mb-4">AI Disambiguation</h3>
+                              
++                             <div className="text-[10px] uppercase font-bold text-zinc-500 mb-3 block">Select a primary name for AI compilation contexts</div>
+                              <div className="grid grid-cols-2 gap-4">
+                                 <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
+-                                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-2">Canon Identifier</span>
+-                                   <span className="font-mono text-sm bg-zinc-200 dark:bg-zinc-800 px-2 py-1 rounded text-zinc-700 dark:text-zinc-300">
++                                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-3">Canon Identifier</span>
++                                   <div 
++                                      className={`flex items-center gap-1.5 w-max px-3 py-1.5 rounded-full font-mono text-sm cursor-pointer transition border ${activeContact.preferredName === activeContact.originalName ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100' : 'bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:border-amber-400 group'}`}
++                                      onClick={() => handleSetPreferredName(activeContact.originalName)}
++                                   >
++                                      <Star size={14} className={activeContact.preferredName === activeContact.originalName ? "fill-amber-400 text-amber-500" : "text-zinc-300 dark:text-zinc-600 group-hover:text-amber-400"} />
+                                       {activeContact.originalName}
+-                                   </span>
++                                   </div>
+                                 </div>
++                                
+                                 <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
+-                                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-2 px-1">Known Aliases</span>
++                                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-3 px-1">Known Aliases</span>
+                                    {editingData ? (
+                                       <input 
+                                          value={editingData.rawAliasesText ?? editingData.aliases?.join(', ') ?? activeContact.aliases?.join(', ') ?? ''} 
+                                          onChange={e => setEditingData({...editingData, rawAliasesText: e.target.value})} 
+-                                         className="w-full px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded font-medium text-sm focus:ring-2 outline-none"
+-                                         placeholder="e.g. Bobby, Rob..."
++                                         className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg font-medium text-sm focus:ring-2 outline-none"
++                                         placeholder="e.g. Robert, Rob..."
+                                       />
+                                    ) : (
+-                                     <div className="flex flex-wrap gap-1">
+-                                        {(activeContact.aliases || []).length > 0 ? activeContact.aliases.map(a => <span key={a} className="bg-zinc-200 dark:bg-zinc-800 text-xs px-2 py-1 rounded font-medium">{a}</span>) : <span className="text-xs text-zinc-400 p-1">No aliases saved.</span>}
++                                     <div className="flex flex-wrap gap-2">
++                                        {(activeContact.aliases || []).length > 0 ? activeContact.aliases.map(a => (
++                                           <div 
++                                              key={a}
++                                              className={`flex items-center gap-1.5 w-max px-3 py-1.5 rounded-full text-sm font-medium cursor-pointer transition border ${activeContact.preferredName === a ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100' : 'bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:border-amber-400 group'}`}
++                                              onClick={() => handleSetPreferredName(a)}
++                                           >
++                                              <Star size={14} className={activeContact.preferredName === a ? "fill-amber-400 text-amber-500" : "text-zinc-300 dark:text-zinc-600 group-hover:text-amber-400"} />
++                                              {a}
++                                           </div>
++                                        )) : <span className="text-xs text-zinc-400 p-1">No aliases to elect. Add some below.</span>}
+                                      </div>
+                                    )}
+                                 </div>
+diff --git a/src/app/layout.tsx b/src/app/layout.tsx
+index db1a5e3..07f81e2 100644
+--- a/src/app/layout.tsx
++++ b/src/app/layout.tsx
+@@ -7,6 +7,8 @@ export const metadata: Metadata = {
+ };
+ 
+ import { AuthProvider } from "@/components/AuthProvider";
++import { BackgroundJobProvider } from "@/components/BackgroundJobProvider";
++import { GlobalHeader } from "@/components/GlobalHeader";
+ 
+ export default function RootLayout({
+   children,
+@@ -15,8 +17,15 @@ export default function RootLayout({
+ }>) {
+   return (
+     <html lang="en" className="h-full antialiased font-sans">
+-      <body className="min-h-full flex flex-col">
+-        <AuthProvider>{children}</AuthProvider>
++      <body className="h-screen flex flex-col overflow-hidden bg-[#F4F1EA] dark:bg-[#111111]">
++        <BackgroundJobProvider>
++          <AuthProvider>
++            <GlobalHeader />
++            <main className="flex-1 overflow-y-auto relative no-scrollbar flex flex-col">
++              {children}
++            </main>
++          </AuthProvider>
++        </BackgroundJobProvider>
+       </body>
+     </html>
+   );
+diff --git a/src/app/page.tsx b/src/app/page.tsx
+index 195bf94..0837a53 100644
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -1,18 +1,22 @@
+ "use client";
+ 
+-import { useState, useEffect, useRef } from "react";
+-import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, embedAndUpsertToPineconeAction, deletePineconeSourceAction, deleteAllPineconeResourcesAction, recompileStoriesWithContactsAction, reduceDashboardOverviewAction } from "./actions";
+-import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, saveQuestionBankItem, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/firebase/db";
++import { useState, useEffect, useRef, useMemo } from "react";
++import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, embedStoriesToPineconeAction, deletePineconeSourceAction, deleteAllPineconeResourcesAction, recompileStoriesWithContactsAction, reduceDashboardOverviewAction } from "./actions";
++import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, saveQuestionBankItem, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/firebase/db";
++import { useBackgroundJobs } from "@/components/BackgroundJobProvider";
+ import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview } from "@/lib/rag";
+ import { motion, AnimatePresence } from "framer-motion";
+ import ReactMarkdown from "react-markdown";
+ import Link from "next/link";
+-import { Sparkles, Search, BookOpen, FileText, X, PlusCircle, LogOut, ArrowRight, Share2, Settings, MessageSquare, AudioLines, Presentation, Network, Brain, FileSpreadsheet, Loader2, RefreshCcw, Trash2, User, Activity } from "lucide-react";
++import { Sparkles, Search, BookOpen, FileText, X, PlusCircle, LogOut, ArrowRight, Share2, Settings, MessageSquare, AudioLines, Presentation, Network, Brain, FileSpreadsheet, Loader2, RefreshCcw, Trash2, User, Activity, PenTool } from "lucide-react";
+ import { useAuth } from "@/components/AuthProvider";
+ import { LoginModule } from "@/components/LoginModule";
+ import { InterviewerModal } from "@/components/InterviewerModal";
++import { PodcastModal } from "@/components/PodcastModal";
+ import { auth } from "@/lib/firebase/client";
+ 
++const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ#".split('');
++
+ export interface UploadProgressState {
+   [fileName: string]: {
+     stage: string;
+@@ -22,21 +26,48 @@ export interface UploadProgressState {
+ 
+ export default function Home() {
+   const { user, loading } = useAuth();
++  const { jobs } = useBackgroundJobs();
+   const [sources, setSources] = useState<NotebookSource[]>([]);
++  const [synopsis, setSynopsis] = useState<string>("");
++  const [wisdomSummaries, setWisdomSummaries] = useState<WisdomSummary[]>([]);
++  const [questions, setQuestions] = useState<string[]>([]);
++  const [actionMetrics, setActionMetrics] = useState({ unconfirmedEntities: 0, narrativeGaps: 0, ready: false });
+   const [isUploading, setIsUploading] = useState(false);
+   const [activeUploads, setActiveUploads] = useState<UploadProgressState>({});
+   
+   const [chunks, setChunks] = useState<TranscriptChunk[]>([]);
+-  const [questions, setQuestions] = useState<string[]>([]);
+-  const [synopsis, setSynopsis] = useState<string>("");
+   
+   const [chatMessages, setChatMessages] = useState<{role: string, text: string}[]>([]);
+   const [activeStreamText, setActiveStreamText] = useState("");
+   const [chatInput, setChatInput] = useState("");
+   const [isChatting, setIsChatting] = useState(false);
+-  const [wisdomSummaries, setWisdomSummaries] = useState<WisdomSummary[]>([]);
+   const [tagSearchQuery, setTagSearchQuery] = useState("");
+   
++  const groupedWisdomTags = useMemo(() => {
++     const groups: Record<string, WisdomSummary[]> = {};
++     ALPHABET.forEach(l => groups[l] = []);
++     
++     const filtered = wisdomSummaries
++          .filter(w => w.tag.toLowerCase().includes(tagSearchQuery.toLowerCase()))
++          .sort((a,b) => a.tag.localeCompare(b.tag));
++          
++     filtered.forEach(w => {
++         const charRaw = w.tag.replace(/^#/, '').trim().charAt(0).toUpperCase();
++         const firstChar = ALPHABET.includes(charRaw) ? charRaw : '#';
++         groups[firstChar].push(w);
++     });
++     return groups;
++  }, [wisdomSummaries, tagSearchQuery]);
++
++  const scrollToWisdomLetter = (letter: string) => {
++      const el = document.getElementById(`wisdom-letter-${letter}`);
++      const container = document.getElementById("wisdom-scroll-container");
++      if (el && container) {
++          const topPos = el.offsetTop - container.offsetTop;
++          container.scrollTo({ top: topPos, behavior: 'smooth' });
++      }
++  };
++  
+   const [isProcessing, setIsProcessing] = useState(false);
+   const [dashboardProgress, setDashboardProgress] = useState<{current: number, total: number, etaSeconds: number} | null>(null);
+ 
+@@ -55,9 +86,62 @@ export default function Home() {
+   const [isInterviewerThinking, setIsInterviewerThinking] = useState(false);
+   const [history, setHistory] = useState<any[]>([]);
+   const [showVault, setShowVault] = useState(false);
++  
+   const [isInterviewerOpen, setIsInterviewerOpen] = useState(false);
++  const [isPodcastModalOpen, setIsPodcastModalOpen] = useState(false);
+   
+   const [contacts, setContacts] = useState<Contact[]>([]);
++
++  const [selectionContext, setSelectionContext] = useState<{text: string; x: number; y: number} | null>(null);
++  const [overrideInput, setOverrideInput] = useState("");
++  const [isSavingOverride, setIsSavingOverride] = useState(false);
++
++  const handleSelection = () => {
++     const selection = window.getSelection();
++     if (selection && selection.toString().trim() !== "") {
++        const text = selection.toString().trim();
++        if (text.length < 5) return;
++        try {
++           const range = selection.getRangeAt(0);
++           const rect = range.getBoundingClientRect();
++           setSelectionContext({
++              text,
++              x: rect.left + rect.width / 2,
++              y: Math.max(rect.top - 10, 40)
++           });
++        } catch (e) {
++           console.error(e);
++        }
++     } else {
++        setSelectionContext(null);
++     }
++  };
++
++  useEffect(() => {
++     document.addEventListener("selectionchange", handleSelection);
++     return () => document.removeEventListener("selectionchange", handleSelection);
++  }, []);
++
++  const submitOverride = async () => {
++     if (!user || (!overrideInput.trim() && !selectionContext?.text)) return;
++     setIsSavingOverride(true);
++     try {
++       const profile = await fetchUserProfile(user.uid) || {};
++       const currentOverrides = profile.userOverrides || [];
++       const newOverride = `Discrepancy spotted: AI originally generated "${selectionContext?.text}". User Corrected Truth: ${overrideInput}`;
++       
++       await updateUserProfile(user.uid, {
++         userOverrides: [...currentOverrides, newOverride]
++       });
++       setSelectionContext(null);
++       setOverrideInput("");
++       alert("Correction saved to your master database! The AI Interviewer will remember this moving forward.");
++     } catch (e) {
++       console.error("Failed to commit override", e);
++     } finally {
++       setIsSavingOverride(false);
++     }
++  };
+   
+   const messagesEndRef = useRef<HTMLDivElement>(null);
+ 
+@@ -78,9 +162,22 @@ export default function Home() {
+     // 1. Fetch Sources and Contacts
+     const cloudSources = await fetchUserSources(user.uid);
+     setSources(cloudSources);
+-    const loadedContacts = await fetchContacts(user.uid);
++    const [loadedContacts, loadedStories] = await Promise.all([
++        fetchContacts(user.uid),
++        fetchHighFidelityStories(user.uid)
++    ]);
+     setContacts(loadedContacts);
+ 
++    const cList = loadedContacts || [];
++    const sList = loadedStories || [];
++    const verifiedCount = cList.filter(c => Boolean(c.firstName && c.lastName && (c.preferredName || c.aliases?.length > 0))).length;
++
++    setActionMetrics({
++        unconfirmedEntities: cList.length > 0 ? cList.length - verifiedCount : 0,
++        narrativeGaps: sList.filter(s => Boolean(s.gapPrompt && s.gapPrompt.trim().length > 0)).length,
++        ready: true
++    });
++
+     // 2. Fetch Persistent Dashboard State
+     const dashboardState = await fetchDashboardState(user.uid);
+     
+@@ -155,8 +252,6 @@ export default function Home() {
+       
+       if (savedDoc) {
+         uploadedSources.push(savedDoc);
+-        setActiveUploads(prev => ({ ...prev, [file.name]: { stage: "Vectorizing via Pinecone Agents", progress: 70 } }));
+-        await embedAndUpsertToPineconeAction(user.uid, savedDoc.id, text);
+       }
+       
+       setActiveUploads(prev => ({ ...prev, [file.name]: { stage: "Waiting for Global Synthesis", progress: 80 } }));
+@@ -186,6 +281,9 @@ export default function Home() {
+ 
+         const updatedStories = await reduceHighFidelityStoriesAction(currentStories, rawMappedStories, undefined, relationalContext);
+         await saveHighFidelityStories(user.uid, updatedStories);
++        
++        // Re-embed the complete, clean, metadata-rich stories! Overwrites old matches dynamically via their story.id
++        await embedStoriesToPineconeAction(user.uid, "nexus-vault", updatedStories);
+ 
+         // Auto-Harvest Gap Prompts into Question Bank
+         for (const story of updatedStories) {
+@@ -340,16 +438,7 @@ export default function Home() {
+ 
+     if (targetSource && targetSource.id) {
+        await deleteNotebookSource(targetSource.id);
+-       
+-       // Scrub orphaned Vectors from Pinecone natively!
+-       if (user) {
+-          if (newSources.length === 0) {
+-             // Sweep the entire namespace if vault is emptied!
+-             await deleteAllPineconeResourcesAction(user.uid);
+-          } else {
+-             await deletePineconeSourceAction(user.uid, targetSource.id);
+-          }
+-       }
++       // Vectors are scrubbed and rebuilt during the Reconciliation Phase below.
+     }
+ 
+     // --- NEW: Reconciliation Recompile ---
+@@ -359,8 +448,12 @@ export default function Home() {
+           const vaultContext = newSources.map(s => `[Source: ${s.fileName}]\n${s.textContent}`).join("\n\n");
+           const recompiled = await extractHighFidelityStoriesAction(vaultContext);
+           await saveHighFidelityStories(user.uid, recompiled);
++          
++          await deleteAllPineconeResourcesAction(user.uid);
++          await embedStoriesToPineconeAction(user.uid, "nexus-vault", recompiled);
+         } else {
+           await saveHighFidelityStories(user.uid, []);
++          await deleteAllPineconeResourcesAction(user.uid);
+         }
+       } catch (err) {
+         console.error("Reconciliation compilation failed:", err);
+@@ -402,9 +495,13 @@ export default function Home() {
+     }
+ 
+     let linguisticContext = "";
++    let systemOverrides = "";
+     if (user) {
+       const profile = await fetchUserProfile(user.uid);
+       linguisticContext = [profile?.culturalHeritage, profile?.primaryLanguage, profile?.secondaryLanguages].filter(Boolean).join(" | ");
++      if (profile?.userOverrides && profile.userOverrides.length > 0) {
++         systemOverrides = profile.userOverrides.join(" | ");
++      }
+     }
+ 
+     let relationalContext = "";
+@@ -426,6 +523,7 @@ export default function Home() {
+           history: chatMessages, // omit the current user prompt since it's sent as 'question'
+           linguisticContext,
+           relationalContext,
++          systemOverrides,
+         }),
+       });
+ 
+@@ -494,7 +592,7 @@ export default function Home() {
+   if (!user) return <div className="min-h-screen bg-[#F6F5F0] dark:bg-zinc-950 px-4"><LoginModule /></div>;
+ 
+   return (
+-    <div className="h-screen flex flex-col bg-[#F3F4F6] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans overflow-hidden">
++    <div className="h-full flex flex-col bg-[#F3F4F6] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans overflow-hidden">
+       
+       <AnimatePresence>
+         {isInterviewerOpen && user && (
+@@ -508,44 +606,19 @@ export default function Home() {
+             }} 
+           />
+         )}
++        {isPodcastModalOpen && user && (
++           <PodcastModal 
++             userId={user.uid}
++             onClose={() => setIsPodcastModalOpen(false)}
++           />
++        )}
+       </AnimatePresence>
+ 
+-      {/* Global Header */}
+-      <header className="flex-shrink-0 flex items-center justify-between px-6 py-3 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
+-        <div className="flex items-center gap-4">
+-          <div className="bg-slate-900 dark:bg-white text-white dark:text-zinc-900 w-8 h-8 rounded-full flex items-center justify-center font-bold font-serif shadow-sm">N</div>
+-          <span className="font-semibold text-lg flex items-center gap-2">Legacy Nexus <span className="px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-xs rounded-full font-medium text-zinc-500">Workspace</span></span>
+-        </div>
+-        
+-        <div className="flex items-center gap-4">
+-          <button className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition"><Share2 size={16}/> Share</button>
+-          <button className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition"><Settings size={16}/> Settings</button>
+-          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold cursor-pointer relative group">
+-            {user.email?.[0].toUpperCase()}
+-            <div className="absolute top-full right-0 pt-2 w-48 hidden group-hover:block z-50">
+-               <div className="bg-white shadow-lg border border-slate-200 rounded-xl p-2 flex flex-col gap-1">
+-                 <div className="px-3 py-2 text-xs text-slate-500 truncate">{user.email}</div>
+-                 <Link href="/profile" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2">
+-                   <User size={16}/> Profile
+-                 </Link>
+-                 <Link href="/contacts" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2">
+-                   <Network size={16}/> Address Book
+-                 </Link>
+-                 <Link href="/progress" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2">
+-                   <Activity size={16}/> Legacy Progress
+-                 </Link>
+-                 <button onClick={() => auth.signOut()} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-2 mt-1 border-t border-zinc-100 dark:border-zinc-800 pt-3"><LogOut size={16}/> Sign Out</button>
+-               </div>
+-            </div>
+-          </div>
+-        </div>
+-      </header>
+-
+       {/* Main Grid */}
+       <main className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
+         
+         {/* COLUMN 1: Sources (25%) */}
+-        <div className="col-span-3 bg-white/60 dark:bg-zinc-900/40 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full overflow-y-auto">
++        <div className="col-span-3 bg-white/60 dark:bg-zinc-900/40 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full overflow-hidden">
+           <div className="p-4 flex items-center justify-between sticky top-0 bg-white/60 dark:bg-zinc-900/40 backdrop-blur z-10 border-b border-zinc-100 dark:border-zinc-800/50">
+             <h2 className="text-[15px] font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-2">
+               Sources
+@@ -558,7 +631,7 @@ export default function Home() {
+             </button>
+           </div>
+ 
+-          <div className="p-4 flex flex-col gap-4">
++          <div className="p-4 flex flex-col gap-4 flex-1 h-0 pb-0">
+             {/* Native Auto-upload Label */}
+             <label className={`flex items-center justify-center gap-2 w-full py-2.5 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-sm font-medium rounded-full cursor-pointer transition shadow-sm ${isUploading ? 'opacity-50 pointer-events-none':''}`}>
+               {isUploading ? <RefreshCcw size={16} className="animate-spin text-zinc-500"/> : <PlusCircle size={16} />} 
+@@ -637,19 +710,53 @@ export default function Home() {
+                 </div>
+               )}
+ 
+-              <div className="flex flex-col gap-2 overflow-y-auto pr-2 pb-10">
+-                {[...wisdomSummaries]
+-                  .filter(w => w.tag.toLowerCase().includes(tagSearchQuery.toLowerCase()))
+-                  .sort((a,b) => a.tag.localeCompare(b.tag))
+-                  .map((wisdom, idx) => (
+-                  <button 
+-                    key={idx} 
+-                    onClick={() => handleTagClick(wisdom)}
+-                    className="text-xs font-semibold px-2 py-1.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/50 rounded-md cursor-pointer transition text-left"
+-                  >
+-                    {wisdom.tag}
+-                  </button>
+-                ))}
++              <div className="relative flex-1 flex overflow-hidden -mr-6 pr-6">
++                 <div id="wisdom-scroll-container" className="flex flex-col gap-4 overflow-y-auto pr-8 pb-10 flex-1 relative no-scrollbar">
++                    {ALPHABET.map(letter => {
++                        const group = groupedWisdomTags[letter];
++                        if (!group || group.length === 0) return null;
++                        return (
++                           <div key={`wisdom-${letter}`} id={`wisdom-letter-${letter}`} className="flex flex-col gap-2 relative">
++                              <span className="text-[10px] font-bold text-zinc-300 dark:text-zinc-600 mb-1 pl-1 border-b border-zinc-100 dark:border-zinc-800/50 pb-1">{letter}</span>
++                              {group.map((wisdom, idx) => (
++                                 <button 
++                                   key={`${letter}-${idx}`}
++                                   onClick={() => handleTagClick(wisdom)}
++                                   className="text-xs font-semibold px-2 py-1.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/50 rounded-md cursor-pointer transition text-left relative group z-10"
++                                 >
++                                   {wisdom.tag}
++                                 </button>
++                              ))}
++                           </div>
++                        );
++                    })}
++                    {wisdomSummaries.length > 0 && Object.values(groupedWisdomTags).every(g => g.length === 0) && (
++                       <span className="text-xs text-zinc-400 italic text-center w-full block mt-4">No tags match search.</span>
++                    )}
++                 </div>
++                 
++                 {wisdomSummaries.length > 0 && (
++                     <div className="absolute right-0 top-0 bottom-0 w-8 flex flex-col items-center justify-center gap-[1px] py-2 z-20 select-none bg-zinc-50/80 dark:bg-zinc-950/80 backdrop-blur-sm shadow-[-4px_0_12px_rgba(0,0,0,0.02)]">
++                         {ALPHABET.map(letter => {
++                             const count = groupedWisdomTags[letter]?.length || 0;
++                             return (
++                                 <div 
++                                    key={`nav-${letter}`} 
++                                    onClick={() => count > 0 && scrollToWisdomLetter(letter)}
++                                    className={`flex items-center gap-0.5 text-[9px] cursor-pointer w-full justify-center px-1 py-[2px] rounded-sm transition-transform ${
++                                        count > 0 
++                                        ? "font-bold text-indigo-600 dark:text-indigo-400 hover:scale-125 hover:bg-slate-100 dark:hover:bg-slate-800" 
++                                        : "font-medium text-zinc-300 dark:text-zinc-700"
++                                    }`}
++                                    title={count > 0 ? `${count} tags` : 'No tags'}
++                                 >
++                                     <span>{letter}</span>
++                                     {count > 0 && <span className="opacity-60 text-[7px] tracking-tighter hidden md:inline">[{count}]</span>}
++                                 </div>
++                             );
++                         })}
++                     </div>
++                 )}
+               </div>
+             </div>
+             
+@@ -808,7 +915,10 @@ export default function Home() {
+               
+               {/* Studio Tool Grid */}
+               <div className="grid grid-cols-1 gap-3">
+-                 <div className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900 hover:border-blue-400 transition cursor-pointer p-4 rounded-xl flex items-center gap-4 hover:shadow-md">
++                 <div 
++                   onClick={() => setIsPodcastModalOpen(true)}
++                   className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900 hover:border-blue-400 transition cursor-pointer p-4 rounded-xl flex items-center gap-4 hover:shadow-md"
++                 >
+                     <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center flex-shrink-0">
+                        <AudioLines className="text-blue-600 dark:text-blue-400" size={20}/>
+                     </div>
+@@ -845,28 +955,76 @@ export default function Home() {
+                  </div>
+               </div>
+ 
+-              {/* AI Interviewer Integration */}
++              {/* Status & To-Do Legend */}
+               <div className="border-t border-zinc-200 dark:border-zinc-800 pt-6">
+-                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-4"><Brain size={14}/> Interviewer Suggestions</h3>
+-                
+-                {isInterviewerThinking && (
+-                   <div className="p-4 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 animate-pulse text-sm text-zinc-500">
+-                     Synthesizing interrogations...
+-                   </div>
+-                )}
++                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-4"><Activity size={14}/> Status & Actions Legend</h3>
+                 
+                 <div className="space-y-3">
+-                  {questions.map((q, idx) => (
+-                    <div key={idx} className="p-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm hover:border-blue-400 cursor-pointer transition text-[13px] leading-snug text-zinc-700 dark:text-zinc-300 font-medium">
+-                      {q}
++                  {jobs.length > 0 && (
++                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900 rounded-xl shadow-sm">
++                      <div className="flex items-center justify-between mb-3">
++                        <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-2">
++                           <Loader2 size={14} className="animate-spin" /> Active Background Workers ({jobs.length})
++                        </span>
++                      </div>
++                      <div className="space-y-3">
++                        {jobs.map(job => (
++                           <div key={job.id} className="flex flex-col gap-1.5">
++                             <div className="flex justify-between items-end text-xs">
++                               <span className="font-semibold text-zinc-800 dark:text-zinc-200">{job.title}</span>
++                               <span className="text-indigo-600 dark:text-indigo-400 font-mono">{job.progress}%</span>
++                             </div>
++                             <div className="w-full bg-indigo-100 dark:bg-indigo-900/50 rounded-full h-1.5 overflow-hidden">
++                               <div className="bg-indigo-500 h-1.5 transition-all duration-300 relative">
++                                  <div className="absolute inset-0 bg-white/30 backdrop-blur-sm -skew-x-12 animate-pulse"></div>
++                               </div>
++                               <div className="bg-indigo-500 h-1.5 transition-all duration-300 -mt-1.5" style={{ width: `${job.progress}%` }}></div>
++                             </div>
++                             <span className="text-[10px] text-zinc-500 truncate">{job.message}</span>
++                           </div>
++                        ))}
++                      </div>
+                     </div>
+-                  ))}
+-                  {questions.length === 0 && !isInterviewerThinking && chunks.length > 0 && (
+-                     <p className="text-sm text-zinc-500">No suggestions generated.</p>
+-                  )}
+-                  {chunks.length === 0 && !isProcessing && (
+-                     <p className="text-xs text-zinc-400 text-center mt-8">Upload documents to unlock the Studio features.</p>
+                   )}
++
++                  <Link href="/contacts" className="flex items-center justify-between p-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm hover:border-blue-400 cursor-pointer transition group">
++                    <div className="flex items-center gap-3">
++                       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${actionMetrics.unconfirmedEntities > 0 ? "bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800"}`}>
++                          <Network size={14}/>
++                       </div>
++                       <div className="flex flex-col">
++                          <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Unconfirmed Entities</span>
++                          <span className="text-xs text-zinc-500">Address Book identity alignment</span>
++                       </div>
++                    </div>
++                    {actionMetrics.ready ? (
++                       <span className={`font-mono text-sm font-bold ${actionMetrics.unconfirmedEntities > 0 ? "text-amber-600 dark:text-amber-400" : "text-zinc-300 dark:text-zinc-700"}`}>
++                         {actionMetrics.unconfirmedEntities}
++                       </span>
++                    ) : (
++                       <Loader2 size={14} className="animate-spin text-zinc-300" />
++                    )}
++                  </Link>
++
++                  <Link href="/stories" className="flex items-center justify-between p-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm hover:border-blue-400 cursor-pointer transition group">
++                    <div className="flex items-center gap-3">
++                       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${actionMetrics.narrativeGaps > 0 ? "bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400" : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800"}`}>
++                          <BookOpen size={14}/>
++                       </div>
++                       <div className="flex flex-col">
++                          <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Narrative Gaps</span>
++                          <span className="text-xs text-zinc-500">Timeline chapters missing deep context</span>
++                       </div>
++                    </div>
++                    {actionMetrics.ready ? (
++                       <span className={`font-mono text-sm font-bold ${actionMetrics.narrativeGaps > 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-300 dark:text-zinc-700"}`}>
++                         {actionMetrics.narrativeGaps}
++                       </span>
++                    ) : (
++                       <Loader2 size={14} className="animate-spin text-zinc-300" />
++                    )}
++                  </Link>
++
+                 </div>
+               </div>
+            </div>
+@@ -895,6 +1053,45 @@ export default function Home() {
+           </motion.div>
+         )}
+       </AnimatePresence>
++      <AnimatePresence>
++        {selectionContext && (
++          <motion.div 
++             initial={{ opacity: 0, y: 10, scale: 0.95 }}
++             animate={{ opacity: 1, y: 0, scale: 1 }}
++             exit={{ opacity: 0, y: 5, scale: 0.95 }}
++             className="fixed z-[9999] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-2xl p-4 w-[380px]"
++             style={{ left: Math.min(selectionContext.x, window.innerWidth - 400), top: selectionContext.y + 20 }}
++          >
++            <div className="flex items-center justify-between mb-3 border-b border-zinc-100 dark:border-zinc-800 pb-2">
++              <h4 className="font-bold text-red-600 dark:text-red-400 flex items-center gap-1.5 text-sm">
++                <Sparkles size={14} /> AI Discrepancy Found?
++              </h4>
++              <button onClick={() => setSelectionContext(null)} className="text-zinc-400 hover:text-zinc-600">
++                <X size={14} />
++              </button>
++            </div>
++            <p className="text-xs text-zinc-500 mb-3 italic line-clamp-2 leading-relaxed">
++               "{selectionContext.text}"
++            </p>
++            <textarea 
++               value={overrideInput}
++               onChange={(e) => setOverrideInput(e.target.value)}
++               placeholder="Explain the actual truth to the AI so it never makes this mistake again..."
++               className="w-full text-sm bg-zinc-50 dark:bg-[#121212] border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 min-h-[100px] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
++            />
++            <div className="flex justify-end gap-2">
++              <button 
++                 onClick={submitOverride}
++                 disabled={isSavingOverride || !overrideInput.trim()}
++                 className="flex items-center gap-2 px-4 py-2 bg-black dark:bg-white text-white dark:text-black hover:bg-zinc-800 dark:hover:bg-zinc-200 font-bold text-xs rounded-lg transition disabled:opacity-50"
++              >
++                 {isSavingOverride ? <Loader2 size={12} className="animate-spin"/> : <PenTool size={12}/>}
++                 Override AI Memory
++              </button>
++            </div>
++          </motion.div>
++        )}
++      </AnimatePresence>
+     </div>
+   );
+ }
+diff --git a/src/app/progress/page.tsx b/src/app/progress/page.tsx
+index 8c16803..d0fa838 100644
+--- a/src/app/progress/page.tsx
++++ b/src/app/progress/page.tsx
+@@ -159,12 +159,8 @@ export default function ProgressPage() {
+   if (!user) return <div className="min-h-screen bg-[#F6F5F0] dark:bg-zinc-950 px-4"><LoginModule /></div>;
+ 
+   return (
+-    <div className="min-h-screen bg-zinc-50 dark:bg-[#0a0a0a] text-zinc-900 dark:text-zinc-100 font-sans p-6 md:p-12 overflow-y-auto">
+-      <div className="max-w-5xl mx-auto space-y-8">
+-        
+-        <Link href="/" className="inline-flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">
+-          <ArrowLeft size={16} /> Back to Dashboard
+-        </Link>
++    <div className="h-full bg-zinc-50 dark:bg-[#0a0a0a] text-zinc-900 dark:text-zinc-100 font-sans p-6 md:p-12 overflow-y-auto no-scrollbar">
++      <div className="max-w-5xl mx-auto space-y-8 mt-4">
+ 
+         {/* Header Block */}
+         <div className="border-b border-zinc-200 dark:border-zinc-800 pb-8 flex flex-col gap-3">
+diff --git a/src/app/sources/page.tsx b/src/app/sources/page.tsx
+index 69d11a7..6527711 100644
+--- a/src/app/sources/page.tsx
++++ b/src/app/sources/page.tsx
+@@ -5,7 +5,7 @@ import Link from "next/link";
+ import { ArrowLeft, Loader2, FileText, Trash2, Database, Clock, Bot } from "lucide-react";
+ import { useAuth } from "@/components/AuthProvider";
+ import { fetchUserSources, deleteNotebookSource, NotebookSource, saveHighFidelityStories, saveChatHistory } from "@/lib/firebase/db";
+-import { deleteAllPineconeResourcesAction, deletePineconeSourceAction, extractHighFidelityStoriesAction } from "@/app/actions";
++import { deleteAllPineconeResourcesAction, embedStoriesToPineconeAction, extractHighFidelityStoriesAction } from "@/app/actions";
+ 
+ export default function SourcesPage() {
+   const { user, loading } = useAuth();
+@@ -32,18 +32,16 @@ export default function SourcesPage() {
+ 
+         await deleteNotebookSource(targetSource.id);
+ 
+-        if (newSources.length === 0) {
+-            await deleteAllPineconeResourcesAction(user.uid);
+-        } else {
+-            await deletePineconeSourceAction(user.uid, targetSource.id);
+-        }
+-
+         if (newSources.length > 0) {
+             const vaultContext = newSources.map(s => `[Source: ${s.fileName}]\n${s.textContent}`).join("\n\n");
+             const recompiled = await extractHighFidelityStoriesAction(vaultContext);
+             await saveHighFidelityStories(user.uid, recompiled);
++
++            await deleteAllPineconeResourcesAction(user.uid);
++            await embedStoriesToPineconeAction(user.uid, "nexus-vault", recompiled);
+         } else {
+             await saveHighFidelityStories(user.uid, []);
++            await deleteAllPineconeResourcesAction(user.uid);
+         }
+     } catch (e) {
+         console.error("Failed to delete source:", e);
+diff --git a/src/app/stories/page.tsx b/src/app/stories/page.tsx
+index d7d74a7..b950c32 100644
+--- a/src/app/stories/page.tsx
++++ b/src/app/stories/page.tsx
+@@ -1,13 +1,14 @@
+ "use client";
+ 
+ import { useState, useEffect } from "react";
+-import { ArrowLeft, BookOpen, Clock, Target, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, Sparkles, Crosshair, Loader2, Library, Globe } from "lucide-react";
++import { ArrowLeft, BookOpen, Clock, Target, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, Sparkles, Crosshair, Loader2, Library, Globe, X, GripVertical, Save, Edit3 } from "lucide-react";
+ import Link from "next/link";
+-import { motion, AnimatePresence } from "framer-motion";
++import { motion, AnimatePresence, Reorder } from "framer-motion";
+ import { useAuth } from "@/components/AuthProvider";
+ import { LoginModule } from "@/components/LoginModule";
++import { InterviewerModal } from "@/components/InterviewerModal";
+ import { HighFidelityStory } from "@/lib/rag";
+-import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights } from "@/lib/firebase/db";
++import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights, saveChatHistory, fetchContacts, saveContact, type Contact } from "@/lib/firebase/db";
+ import { extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, generateLegacyIdentityAction, generateDriftInsightAction, generateLegacyDeepDiveAction } from "@/app/actions";
+ import { computeCentroidMath, analyzeCrossMetricPattern, RECOGNIZED_ERAS } from "@/lib/math";
+ 
+@@ -76,7 +77,8 @@ const MOCK_STORIES: HighFidelityStory[] = [
+       insightSummary: "",
+       legacyLesson: "",
+       rawQuote: ""
+-    }
++    },
++    gapPrompt: "You mentioned the German printing press failed and it triggered a three-year legal battle. How did you ultimately resolve this conflict, and what personal lesson did that prolonged struggle teach you about trust in business?"
+   },
+   {
+     id: "3",
+@@ -116,6 +118,7 @@ export default function StoriesPage() {
+   const { user, loading } = useAuth();
+   
+   const [stories, setStories] = useState<HighFidelityStory[]>([]);
++  const [selectedStory, setSelectedStory] = useState<HighFidelityStory | null>(null);
+   const [isAnalyzing, setIsAnalyzing] = useState(false);
+   const [mappingProgress, setMappingProgress] = useState("");
+   const [progressPercent, setProgressPercent] = useState<number | null>(null);
+@@ -123,6 +126,99 @@ export default function StoriesPage() {
+   const [hasScanned, setHasScanned] = useState(false);
+   const [isLoadingCache, setIsLoadingCache] = useState(true);
+ 
++  const [isInterviewerOpen, setIsInterviewerOpen] = useState(false);
++  const [activeGapPrompt, setActiveGapPrompt] = useState<string | null>(null);
++  const [isStoryboardOpen, setIsStoryboardOpen] = useState(false);
++
++  const [contacts, setContacts] = useState<Contact[]>([]);
++  const [selectionContext, setSelectionContext] = useState<{text: string; x: number; y: number} | null>(null);
++  const [overrideInput, setOverrideInput] = useState("");
++  const [selectedContactAliasId, setSelectedContactAliasId] = useState("");
++  const [isSavingCorrection, setIsSavingCorrection] = useState(false);
++
++  const handleSelection = () => {
++     const selection = window.getSelection();
++     if (selection && selection.toString().trim() !== "") {
++        const text = selection.toString().trim();
++        if (text.length < 3) return;
++        try {
++           const range = selection.getRangeAt(0);
++           const rect = range.getBoundingClientRect();
++           setSelectionContext({
++              text,
++              x: rect.left + rect.width / 2,
++              y: Math.max(rect.top - 10, 40)
++           });
++        } catch (e) {
++           console.error(e);
++        }
++     } else {
++        setSelectionContext(null);
++     }
++  };
++
++  useEffect(() => {
++     document.addEventListener("selectionchange", handleSelection);
++     return () => document.removeEventListener("selectionchange", handleSelection);
++  }, []);
++
++  const submitGeneralCorrection = async () => {
++     if (!selectedStory || !user || !selectionContext || !overrideInput.trim()) return;
++     setIsSavingCorrection(true);
++     try {
++        const newNarrative = (selectedStory.detailedNarrative || "").replace(new RegExp(selectionContext.text, 'g'), overrideInput);
++        const newSynopsis = (selectedStory.synopsis || "").replace(new RegExp(selectionContext.text, 'g'), overrideInput);
++        
++        const updatedStory = { ...selectedStory, detailedNarrative: newNarrative, synopsis: newSynopsis };
++        const updatedStories = stories.map(s => s.id === updatedStory.id ? updatedStory : s);
++        
++        await saveHighFidelityStories(user.uid, updatedStories);
++        setStories(updatedStories);
++        setSelectedStory(updatedStory);
++        setSelectionContext(null);
++        setOverrideInput("");
++     } catch (e) {
++        console.error(e);
++     } finally {
++        setIsSavingCorrection(false);
++     }
++  };
++
++  const submitIdentityLink = async () => {
++     if (!selectedStory || !user || !selectionContext || !selectedContactAliasId) return;
++     setIsSavingCorrection(true);
++     try {
++         const contact = contacts.find(c => c.id === selectedContactAliasId);
++         if (!contact) throw new Error("Contact not found");
++
++         if (!(contact.aliases || []).includes(selectionContext.text)) {
++            const newContact = { ...contact, aliases: [...(contact.aliases || []), selectionContext.text] };
++            await saveContact(user.uid, newContact);
++         }
++
++         const canonicalName = contact.preferredName || contact.firstName || contact.originalName || "Unknown";
++         const newNarrative = (selectedStory.detailedNarrative || "").replace(new RegExp(selectionContext.text, 'g'), canonicalName);
++         const newSynopsis = (selectedStory.synopsis || "").replace(new RegExp(selectionContext.text, 'g'), canonicalName);
++         
++         const updatedStory = { ...selectedStory, detailedNarrative: newNarrative, synopsis: newSynopsis };
++         const updatedStories = stories.map(s => s.id === updatedStory.id ? updatedStory : s);
++         
++         await saveHighFidelityStories(user.uid, updatedStories);
++         setStories(updatedStories);
++         setSelectedStory(updatedStory);
++         
++         const updatedContacts = await fetchContacts(user.uid);
++         setContacts(updatedContacts);
++
++         setSelectionContext(null);
++         setSelectedContactAliasId("");
++     } catch (e) {
++         console.error(e);
++     } finally {
++         setIsSavingCorrection(false);
++     }
++  };
++
+   // Safeguard: Prevent accidental reloads when processing
+   useEffect(() => {
+     if (!isAnalyzing) return;
+@@ -143,6 +239,8 @@ export default function StoriesPage() {
+           setStories(cached);
+           setHasScanned(true);
+         }
++        const cList = await fetchContacts(user.uid);
++        setContacts(cList);
+       }
+       setIsLoadingCache(false);
+     }
+@@ -330,16 +428,8 @@ export default function StoriesPage() {
+   };
+ 
+   return (
+-    <div className="min-h-screen bg-[#F3F4F6] dark:bg-[#0a0a0a] text-zinc-900 dark:text-zinc-100 font-sans p-6 md:p-12">
+-      <div className="max-w-7xl mx-auto space-y-8">
+-        
+-        {/* Navigation */}
+-        <Link 
+-          href="/progress" 
+-          className="inline-flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+-        >
+-          <ArrowLeft size={16} /> Back to Legacy Progress
+-        </Link>
++    <div className="h-full bg-[#F3F4F6] dark:bg-[#0a0a0a] text-zinc-900 dark:text-zinc-100 font-sans p-6 md:p-12 overflow-y-auto no-scrollbar">
++      <div className="max-w-7xl mx-auto space-y-8 mt-4">
+ 
+         {/* Header Block */}
+         <div className="border-b border-zinc-200 dark:border-zinc-800 pb-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
+@@ -367,6 +457,12 @@ export default function StoriesPage() {
+                 <><Library size={18} /> Sync New Files</>
+               )}
+             </button>
++            <button 
++                onClick={() => setIsStoryboardOpen(true)}
++                className="flex flex-shrink-0 items-center justify-center gap-2 px-6 py-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-800 dark:text-zinc-200 font-bold rounded-2xl shadow-sm transition-all hover:-translate-y-1 w-full sm:w-auto text-sm"
++              >
++               <Edit3 size={18} /> Edit Timeline
++            </button>
+             <div className="flex flex-col gap-2 w-full sm:w-auto">
+                 <button 
+                   onClick={async () => {
+@@ -501,180 +597,30 @@ export default function StoriesPage() {
+                   <span className="text-sm font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">{story.era || "Undefined"}</span>
+                 </div>
+ 
+-                {/* The Story Card */}
++                {/* The Story Card Face */}
+                 <motion.div 
+                   initial={{ opacity: 0, y: 20 }}
+                   animate={{ opacity: 1, y: 0 }}
+-                  className={`bg-white dark:bg-zinc-900 rounded-3xl p-6 border ${w_intensity >= 5 ? 'border-amber-500/50 shadow-amber-500/10' : 'border-zinc-200 dark:border-zinc-800'} shadow-sm relative overflow-hidden transition-all`}
++                  onClick={() => setSelectedStory(story)}
++                  className={`bg-white dark:bg-zinc-900 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/80 rounded-3xl p-6 border ${w_intensity >= 5 ? 'border-amber-500/50 shadow-amber-500/10' : 'border-zinc-200 dark:border-zinc-800'} shadow-sm relative overflow-hidden transition-all group`}
+                 >
+                   <div className="flex flex-wrap gap-2 items-center mb-3">
+                      <span className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-md border ${tagClass}`}>
+                         {tagText} {impact?.duration_weight ? `(Weight: x${(((w_intensity + (impact.narrative_complexity || 2))/2) * impact.duration_weight).toFixed(1)})` : ''}
+                      </span>
++                     {story.gapPrompt && (
++                       <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-md border bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900 flex items-center gap-1 shadow-sm animate-pulse">
++                          <AlertTriangle size={10} /> Narrative Gap
++                       </span>
++                     )}
+                   </div>
+-                  <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">{story.title}</h2>
+-                  <p className="text-zinc-600 dark:text-zinc-400 mb-8 leading-relaxed">
++                  <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{story.title}</h2>
++                  <p className="text-zinc-600 dark:text-zinc-400 mb-2 leading-relaxed">
+                     "{story.synopsis}"
+                   </p>
+-
+-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+-                    
+-                    {/* Linguistic Corrections (If Any) */}
+-                    {story.linguisticCorrections && story.linguisticCorrections.length > 0 && (
+-                      <div className="col-span-1 md:col-span-2 mb-2 p-4 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
+-                        <h4 className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest flex items-center gap-1.5 mb-3"><Globe size={12} /> AI Phonetic Correction</h4>
+-                        <div className="flex flex-wrap gap-2">
+-                          {story.linguisticCorrections.map((correction, idx) => (
+-                            <div key={idx} className="bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-indigo-800 text-xs px-3 py-1.5 rounded-md flex items-center gap-2">
+-                               <span className="text-zinc-400 dark:text-zinc-600 line-through decoration-red-400/50">{correction.original}</span>
+-                               <ArrowLeft size={10} className="text-zinc-300" />
+-                               <span className="font-bold text-indigo-700 dark:text-indigo-400">{correction.guess}</span>
+-                               {correction.meaning && <span className="opacity-70 text-indigo-600 dark:text-indigo-500 ml-1">({correction.meaning})</span>}
+-                            </div>
+-                          ))}
+-                        </div>
+-                      </div>
+-                    )}
+-
+-                    {/* Psychometric Scorecard */}
+-                    <div>
+-                      <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-4">
+-                        <Target size={14} /> Psychometric Profile
+-                      </h3>
+-                      <div className="space-y-4">
+-                        {story.psychometrics?.map((metric, idx) => (
+-                          <div key={`${metric.label}-${idx}`}>
+-                            <div className="flex justify-between items-end mb-1">
+-                              <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{metric.label}</span>
+-                            </div>
+-                            <div className="w-full h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+-                              <div className="h-full bg-blue-500 rounded-full" style={{ width: `${metric.val}%` }} />
+-                            </div>
+-                          </div>
+-                        ))}
+-                      </div>
+-                    </div>
+-
+-                    {/* Completeness Rubric */}
+-                    <div>
+-                      <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-4">
+-                        <Crosshair size={14} /> Completeness Rubric
+-                      </h3>
+-                      <div className="space-y-3">
+-                        
+-                        <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/50">
+-                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">
+-                            Context<br /><span className="text-xs opacity-75">(The Setup)</span>
+-                          </span>
+-                          {story.rubric?.context ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-zinc-300 dark:text-zinc-700" />}
+-                        </div>
+-                        
+-                        <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/50">
+-                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">
+-                            Conflict<br /><span className="text-xs opacity-75">(The Pivot)</span>
+-                          </span>
+-                          {story.rubric?.conflict ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-zinc-300 dark:text-zinc-700" />}
+-                        </div>
+-
+-                        <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/50">
+-                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">
+-                            Resolution<br /><span className="text-xs opacity-75">(The Outcome)</span>
+-                          </span>
+-                          {story.rubric?.resolution ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-zinc-300 dark:text-zinc-700" />}
+-                        </div>
+-
+-                        <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-transparent">
+-                          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">
+-                            Extraction<br /><span className="text-xs opacity-75">(The Moral)</span>
+-                          </span>
+-                          {story.extraction?.present ? (
+-                            <CheckCircle2 size={16} className="text-emerald-500" />
+-                          ) : (
+-                            <AlertTriangle size={16} className="text-red-500" />
+-                          )}
+-                        </div>
+-
+-                      </div>
+-                    </div>
+-                    
+-                    {/* Taxonomy Block */}
+-                    {story.extraction?.present && story.extraction.depthLevel > 0 && (
+-                      <div className="mt-4 p-4 rounded-xl bg-orange-50 dark:bg-orange-950/20 border border-orange-100 dark:border-orange-900/50">
+-                        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-orange-200/50 dark:border-orange-900/50">
+-                           <Globe size={14} className="text-orange-500" />
+-                           <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wider">Wisdom Taxonomy</span>
+-                           <div className="ml-auto flex items-center gap-1.5">
+-                             <span className="text-[10px] bg-white dark:bg-zinc-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded shadow-sm font-semibold border border-orange-100 dark:border-orange-900">{story.extraction.primaryCategory}</span>
+-                             {story.extraction.secondaryCategory !== "None" && story.extraction.secondaryCategory !== story.extraction.primaryCategory && (
+-                               <span className="text-[10px] bg-orange-100/50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 px-2 py-0.5 rounded font-medium">{story.extraction.secondaryCategory}</span>
+-                             )}
+-                             <span className="text-[10px] bg-orange-200/50 dark:bg-orange-800/40 text-orange-800 dark:text-orange-200 px-1.5 py-0.5 rounded font-bold ml-1">Lvl {story.extraction.depthLevel}</span>
+-                           </div>
+-                        </div>
+-                        
+-                        <div className="space-y-3">
+-                          {story.extraction.legacyLesson && (
+-                            <div className="font-serif text-base text-zinc-900 dark:text-zinc-100 leading-snug">
+-                              "{story.extraction.legacyLesson}"
+-                            </div>
+-                          )}
+-                          
+-                          {(story.extraction.insightSummary || story.extraction.rawQuote) && (
+-                            <div className="pl-3 border-l-2 border-orange-200 dark:border-orange-800 space-y-1.5">
+-                              {story.extraction.insightSummary && (
+-                                <p className="text-xs font-medium text-orange-800/80 dark:text-orange-300/80 uppercase tracking-wide">
+-                                  {story.extraction.insightSummary}
+-                                </p>
+-                              )}
+-                              {story.extraction.rawQuote && (
+-                                <p className="text-sm text-zinc-600 dark:text-zinc-400 italic">
+-                                  "{story.extraction.rawQuote}"
+-                                </p>
+-                              )}
+-                            </div>
+-                          )}
+-                        </div>
+-                      </div>
+-                    )}
+-
+-                  </div>
+-
+-                  {/* AI Gap Trigger */}
+-                  {!story.extraction?.present && story.rubric?.conflict && (
+-                    <motion.div 
+-                      initial={{ opacity: 0, scale: 0.95 }}
+-                      animate={{ opacity: 1, scale: 1 }}
+-                      transition={{ delay: 0.3 }}
+-                      className="mt-6 p-4 md:p-5 bg-red-50 dark:bg-red-950/20 border-l-4 border-red-500 rounded-r-2xl"
+-                    >
+-                      <div className="flex gap-4">
+-                        <ShieldAlert size={24} className="text-red-500 flex-shrink-0" />
+-                        <div>
+-                          <h4 className="font-bold text-red-900 dark:text-red-400 mb-1 flex items-center gap-2">
+-                             Narrative Gap Detected <span className="bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 px-2 py-0.5 rounded text-[10px] uppercase tracking-wider">AI Interruption</span>
+-                          </h4>
+-                          <p className="text-sm text-red-800 dark:text-red-300/80 leading-relaxed font-medium">
+-                            {story.gapPrompt ? (
+-                              story.gapPrompt
+-                            ) : (
+-                              story.extraction?.depthLevel === 1 
+-                                ? `You mentioned a surface-level lesson. If you were telling this to a grandchild, how would you explain the deeper 'why' behind that?` 
+-                                : `This story has a lot of tension, but the lesson feels hidden. Looking back, how did this structural shift change your perspective?`
+-                            )}
+-                          </p>
+-                          <div className="mt-4 flex gap-3">
+-                            <button className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors">
+-                              Record the Moral Now
+-                            </button>
+-                            <button className="px-4 py-2 bg-transparent hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg transition-colors">
+-                              Dismiss
+-                            </button>
+-                          </div>
+-                        </div>
+-                      </div>
+-                    </motion.div>
+-                  )}
+-
++                  <p className="text-[11px] uppercase tracking-wider font-bold text-indigo-500 flex items-center gap-1.5 mt-6 opacity-0 group-hover:opacity-100 transition-opacity">
++                     <BookOpen size={14}/> Read Detailed Memory
++                  </p>
+                 </motion.div>
+               </div>
+             );
+@@ -691,7 +637,8 @@ export default function StoriesPage() {
+               
+               <div className="space-y-8">
+                 {(() => {
+-                  const timeless = !isAnalyzing ? (stories.length > 0 ? stories : (hasScanned ? [] : MOCK_STORIES)).filter(s => s.era === "Timeless") : [];
++                  const rawTimeless = !isAnalyzing ? (stories.length > 0 ? stories : (hasScanned ? [] : MOCK_STORIES)).filter(s => s.era === "Timeless") : [];
++                  const timeless = rawTimeless.sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+                   
+                   if (!isAnalyzing && timeless.length === 0 && hasScanned) {
+                     return (
+@@ -703,57 +650,48 @@ export default function StoriesPage() {
+                     );
+                   }
+ 
+-                  return timeless.map((story, i) => (
+-                  <motion.div 
+-                    key={`${story.id}-${i}`}
+-                    initial={{ opacity: 0, scale: 0.95 }}
+-                    animate={{ opacity: 1, scale: 1 }}
+-                    className="bg-zinc-50 dark:bg-[#1a1a1a] rounded-3xl p-6 border border-zinc-200 dark:border-zinc-800 shadow-sm relative overflow-hidden group hover:border-amber-500/30 transition-colors"
+-                  >
+-                    <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 blur-3xl rounded-full" />
+-                    
+-                    <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">{story.title}</h2>
+-                    <p className="text-zinc-600 dark:text-zinc-400 mb-6 leading-relaxed">
+-                      "{story.synopsis}"
+-                    </p>
+-
+-                    {story.linguisticCorrections && story.linguisticCorrections.length > 0 && (
+-                      <div className="mb-6 p-4 bg-amber-50/50 dark:bg-amber-950/20 rounded-xl border border-amber-100 dark:border-amber-900/30">
+-                        <h4 className="text-[10px] font-bold text-amber-600 dark:text-amber-500 uppercase tracking-widest flex items-center gap-1.5 mb-3"><Globe size={12} /> Secondary Language Guestimation</h4>
+-                        <div className="flex flex-wrap gap-2">
+-                          {story.linguisticCorrections.map((correction, idx) => (
+-                            <div key={idx} className="bg-white dark:bg-[#1a1a1a] shadow-sm text-xs px-3 py-2 rounded-md border border-amber-200/50 dark:border-amber-800/50 flex items-center gap-2">
+-                               <span className="text-zinc-400 dark:text-zinc-600 line-through decoration-red-400/50">{correction.original}</span>
+-                               <ArrowLeft size={10} className="text-zinc-300 transform rotate-180" />
+-                               <span className="font-bold text-amber-700 dark:text-amber-400">{correction.guess}</span>
+-                               {correction.meaning && <span className="text-amber-600/80 dark:text-amber-500/80 ml-1 italic">({correction.meaning})</span>}
+-                            </div>
+-                          ))}
+-                        </div>
+-                      </div>
+-                    )}
++                  const grouped = timeless.reduce((acc, story) => {
++                     const cat = story.timelessCategory || "General Philosophy";
++                     if (!acc[cat]) acc[cat] = [];
++                     acc[cat].push(story);
++                     return acc;
++                  }, {} as Record<string, HighFidelityStory[]>);
+ 
+-                    <div className="grid grid-cols-1 gap-6">
+-                      {/* Psychometric Scorecard */}
+-                      <div>
+-                        <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+-                          <Target size={14} /> Thematic Profile
+-                        </h3>
+-                        <div className="space-y-3">
+-                          {story.psychometrics?.filter(m => m.val > 0).map((metric, idx) => (
+-                            <div key={`${metric.label}-${idx}`}>
+-                              <div className="flex justify-between items-end mb-1">
+-                                <span className="text-[10px] font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">{metric.label}</span>
+-                              </div>
+-                              <div className="w-full h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+-                                <div className="h-full bg-amber-500 rounded-full" style={{ width: `${metric.val}%` }} />
+-                              </div>
+-                            </div>
+-                          ))}
++                  return Object.entries(grouped).map(([categoryName, catStories]) => (
++                     <div key={categoryName} className="mb-10 last:mb-0">
++                        <h4 className="text-sm font-bold text-amber-600 dark:text-amber-600 uppercase tracking-widest mb-4 flex items-center gap-2">
++                           {categoryName}
++                           <div className="h-px bg-amber-200/50 dark:bg-amber-900/50 flex-1" />
++                        </h4>
++                        <div className="space-y-6">
++                           {catStories.map((story, i) => (
++                           <motion.div 
++                             key={`${story.id}-${i}`}
++                             initial={{ opacity: 0, scale: 0.95 }}
++                             animate={{ opacity: 1, scale: 1 }}
++                             onClick={() => setSelectedStory(story)}
++                             className="bg-zinc-50 dark:bg-[#1a1a1a] cursor-pointer hover:bg-white dark:hover:bg-zinc-900 rounded-3xl p-6 border border-zinc-200 dark:border-zinc-800 shadow-sm relative overflow-hidden group hover:border-amber-500/30 transition-all"
++                           >
++                             <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 blur-3xl rounded-full" />
++                             
++                             <div className="flex flex-wrap gap-2 items-center mb-3">
++                                {story.gapPrompt && (
++                                  <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-md border bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900 flex items-center gap-1 shadow-sm animate-pulse">
++                                     <AlertTriangle size={10} /> Narrative Gap
++                                  </span>
++                                )}
++                             </div>
++                             <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mb-2 group-hover:text-amber-600 transition-colors">{story.title}</h2>
++                             <p className="text-zinc-600 dark:text-zinc-400 mb-2 leading-relaxed">
++                               "{story.synopsis}"
++                             </p>
++                             <p className="text-[11px] uppercase tracking-wider font-bold text-amber-500 flex items-center gap-1.5 mt-6 opacity-0 group-hover:opacity-100 transition-opacity">
++                                <BookOpen size={14}/> Read Detailed Memory
++                             </p>
++                           </motion.div>
++                           ))}
+                         </div>
+-                      </div>
+-                    </div>
+-                  </motion.div>
++                     </div>
+                   ));
+                 })()}
+               </div>
+@@ -796,6 +734,426 @@ export default function StoriesPage() {
+           </motion.div>
+         )}
+       </AnimatePresence>
++      
++      <AnimatePresence>
++        {selectedStory && (
++          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
++             <motion.div 
++                initial={{ opacity: 0 }} 
++                animate={{ opacity: 1 }} 
++                exit={{ opacity: 0 }} 
++                onClick={() => setSelectedStory(null)}
++                className="absolute inset-0 bg-black/40 backdrop-blur-sm"
++             />
++             <motion.div 
++               initial={{ opacity: 0, scale: 0.95, y: 10 }}
++               animate={{ opacity: 1, scale: 1, y: 0 }}
++               exit={{ opacity: 0, scale: 0.95, y: 10 }}
++               className="relative w-full max-w-4xl max-h-[85vh] bg-white dark:bg-zinc-950 rounded-3xl shadow-2xl overflow-y-auto border border-zinc-200 dark:border-zinc-800"
++             >
++                <div className="sticky top-0 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between z-10">
++                   <div className="flex items-center gap-3">
++                     <span className="text-xs font-bold uppercase tracking-widest px-2 py-1 bg-zinc-100 dark:bg-zinc-900 text-zinc-500 rounded border border-zinc-200 dark:border-zinc-800">
++                        {selectedStory.era}
++                     </span>
++                     <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 line-clamp-1">{selectedStory.title}</h2>
++                   </div>
++                   <button onClick={() => setSelectedStory(null)} className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-full text-zinc-500 transition-colors">
++                      <X size={20} />
++                   </button>
++                </div>
++                
++                <div className="p-6 md:p-8 space-y-10">
++                   {/* 1. Detailed Narrative */}
++                   <div>
++                     <h3 className="text-sm font-bold text-indigo-500 uppercase tracking-widest flex items-center gap-2 mb-4">
++                        <BookOpen size={16} /> Detailed Memory
++                     </h3>
++                     <div className="prose dark:prose-invert max-w-none text-zinc-700 dark:text-zinc-300 leading-relaxed">
++                        {selectedStory.detailedNarrative ? (
++                           selectedStory.detailedNarrative.split('\n').filter(p => p.trim() !== '').map((paragraph, idx) => (
++                              <p key={idx} className="mb-4">{paragraph}</p>
++                           ))
++                        ) : (
++                           <p className="italic opacity-80">{selectedStory.synopsis}</p>
++                        )}
++                     </div>
++                   </div>
++
++                   {/* Narrative Gap Prompt Action */}
++                   {selectedStory.gapPrompt && (
++                      <div className="mt-6 p-5 rounded-2xl bg-rose-50 dark:bg-rose-950/20 border-2 border-rose-200 dark:border-rose-900 shadow-inner">
++                         <div className="flex items-start gap-4">
++                            <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-400 flex items-center justify-center flex-shrink-0 mt-1">
++                               <AlertTriangle size={18} />
++                            </div>
++                            <div className="flex flex-col w-full">
++                               <h4 className="font-bold text-rose-700 dark:text-rose-400 text-sm uppercase tracking-wider mb-2">Narrative Gap Detected</h4>
++                               <p className="text-zinc-800 dark:text-zinc-200 text-sm italic mb-4 leading-relaxed font-serif">"{selectedStory.gapPrompt}"</p>
++                               <button 
++                                 onClick={() => {
++                                    setActiveGapPrompt(selectedStory.gapPrompt || "");
++                                    setIsInterviewerOpen(true);
++                                 }}
++                                 className="self-start text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:scale-95 transition-transform px-4 py-2 rounded-full shadow-md"
++                               >
++                                  Ask the AI Interviewer
++                               </button>
++                            </div>
++                         </div>
++                      </div>
++                   )}
++
++                   <hr className="border-zinc-200 dark:border-zinc-800" />
++
++                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
++                      {/* Linguistic Corrections */}
++                      {selectedStory.linguisticCorrections && selectedStory.linguisticCorrections.length > 0 && (
++                        <div className="col-span-1 md:col-span-2 mb-2 p-4 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
++                          <h4 className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest flex items-center gap-1.5 mb-3"><Globe size={12} /> AI Phonetic Correction</h4>
++                          <div className="flex flex-wrap gap-2">
++                            {selectedStory.linguisticCorrections.map((correction, idx) => (
++                              <div key={idx} className="bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-indigo-800 text-xs px-3 py-1.5 rounded-md flex items-center gap-2">
++                                 <span className="text-zinc-400 dark:text-zinc-600 line-through decoration-red-400/50">{correction.original}</span>
++                                 <ArrowLeft size={10} className="text-zinc-300" />
++                                 <span className="font-bold text-indigo-700 dark:text-indigo-400">{correction.guess}</span>
++                                 {correction.meaning && <span className="opacity-70 text-indigo-600 dark:text-indigo-500 ml-1">({correction.meaning})</span>}
++                              </div>
++                            ))}
++                          </div>
++                        </div>
++                      )}
++
++                      {/* Psychometric Scorecard */}
++                      <div>
++                        <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-4">
++                          <Target size={14} /> Psychometric Profile
++                        </h3>
++                        <div className="space-y-4">
++                          {selectedStory.psychometrics?.map((metric, idx) => (
++                            <div key={`${metric.label}-${idx}`}>
++                              <div className="flex justify-between items-end mb-1">
++                                <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{metric.label}</span>
++                              </div>
++                              <div className="w-full h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
++                                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${metric.val}%` }} />
++                              </div>
++                            </div>
++                          ))}
++                        </div>
++                      </div>
++
++                      {/* Completeness Rubric */}
++                      <div>
++                        <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-4">
++                          <Crosshair size={14} /> Completeness Rubric
++                        </h3>
++                        <div className="space-y-3">
++                          <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900">
++                            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">Context<br /><span className="text-xs opacity-75">(The Setup)</span></span>
++                            {selectedStory.rubric?.context ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-zinc-300 dark:text-zinc-700" />}
++                          </div>
++                          <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900">
++                            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">Conflict<br /><span className="text-xs opacity-75">(The Pivot)</span></span>
++                            {selectedStory.rubric?.conflict ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-zinc-300 dark:text-zinc-700" />}
++                          </div>
++                          <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900">
++                            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">Resolution<br /><span className="text-xs opacity-75">(The Outcome)</span></span>
++                            {selectedStory.rubric?.resolution ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-zinc-300 dark:text-zinc-700" />}
++                          </div>
++                          <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-transparent">
++                            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">Extraction<br /><span className="text-xs opacity-75">(The Moral)</span></span>
++                            {selectedStory.extraction?.present ? <CheckCircle2 size={16} className="text-emerald-500" /> : <AlertTriangle size={16} className="text-red-500" />}
++                          </div>
++                        </div>
++                      </div>
++
++                      {/* Taxonomy Block */}
++                      {selectedStory.extraction?.present && selectedStory.extraction.depthLevel > 0 && (
++                        <div className="col-span-1 md:col-span-2 mt-4 p-4 rounded-xl bg-orange-50 dark:bg-orange-950/20 border border-orange-100 dark:border-orange-900/50">
++                          <div className="flex items-center gap-2 mb-3 pb-2 border-b border-orange-200/50 dark:border-orange-900/50">
++                             <Globe size={14} className="text-orange-500" />
++                             <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wider">Wisdom Taxonomy</span>
++                             <div className="ml-auto flex items-center gap-1.5">
++                               <span className="text-[10px] bg-white dark:bg-zinc-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded shadow-sm font-semibold border border-orange-100 dark:border-orange-900">{selectedStory.extraction.primaryCategory}</span>
++                               {selectedStory.extraction.secondaryCategory !== "None" && selectedStory.extraction.secondaryCategory !== selectedStory.extraction.primaryCategory && (
++                                 <span className="text-[10px] bg-orange-100/50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 px-2 py-0.5 rounded font-medium">{selectedStory.extraction.secondaryCategory}</span>
++                               )}
++                               <span className="text-[10px] bg-orange-200/50 dark:bg-orange-800/40 text-orange-800 dark:text-orange-200 px-1.5 py-0.5 rounded font-bold ml-1">Lvl {selectedStory.extraction.depthLevel}</span>
++                             </div>
++                          </div>
++                          
++                          <div className="space-y-3">
++                            {selectedStory.extraction.legacyLesson && (
++                              <div className="font-serif text-base text-zinc-900 dark:text-zinc-100 leading-snug">
++                                "{selectedStory.extraction.legacyLesson}"
++                              </div>
++                            )}
++                            
++                            {(selectedStory.extraction.insightSummary || selectedStory.extraction.rawQuote) && (
++                              <div className="pl-3 border-l-2 border-orange-200 dark:border-orange-800 space-y-1.5">
++                                {selectedStory.extraction.insightSummary && (
++                                  <p className="text-xs font-medium text-orange-800/80 dark:text-orange-300/80 uppercase tracking-wide">
++                                    {selectedStory.extraction.insightSummary}
++                                  </p>
++                                )}
++                                {selectedStory.extraction.rawQuote && (
++                                  <p className="text-sm text-zinc-600 dark:text-zinc-400 italic">
++                                    "{selectedStory.extraction.rawQuote}"
++                                  </p>
++                                )}
++                              </div>
++                            )}
++                          </div>
++                        </div>
++                      )}
++                   </div>
++
++                </div>
++             </motion.div>
++          </div>
++        )}
++      </AnimatePresence>
++
++      <AnimatePresence>
++        {isInterviewerOpen && user && (
++          <InterviewerModal 
++            userId={user.uid} 
++            initialPrompt={activeGapPrompt || undefined}
++            onClose={() => {
++               setIsInterviewerOpen(false);
++               setActiveGapPrompt(null);
++            }} 
++            onSave={async (transcript) => {
++               try {
++                   // This is completely optional since Identity Harvester auto-runs in Modal.
++                   // But let's just alert success organically.
++               } finally {
++                   setIsInterviewerOpen(false);
++                   setActiveGapPrompt(null);
++                   alert("Interview fragment saved! When you re-run 'Analyze Archives', this new context will backfill all gaps automatically.");
++               }
++            }} 
++          />
++        )}
++      </AnimatePresence>
++
++      <AnimatePresence>
++        {selectionContext && (
++          <motion.div 
++             initial={{ opacity: 0, y: 10, scale: 0.95 }}
++             animate={{ opacity: 1, y: 0, scale: 1 }}
++             exit={{ opacity: 0, y: 5, scale: 0.95 }}
++             className="fixed z-[9999] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-2xl p-4 w-[380px]"
++             style={{ left: Math.min(selectionContext.x, window.innerWidth - 400), top: selectionContext.y + 20 }}
++          >
++            <div className="flex items-center justify-between mb-3 border-b border-zinc-100 dark:border-zinc-800 pb-2">
++              <h4 className="font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1.5 text-sm">
++                <Sparkles size={14} /> Correct Fact or Identity
++              </h4>
++              <button onClick={() => setSelectionContext(null)} className="text-zinc-400 hover:text-zinc-600">
++                <X size={14} />
++              </button>
++            </div>
++            <p className="text-xs text-zinc-500 mb-3 italic line-clamp-2 leading-relaxed">
++               "{selectionContext.text}"
++            </p>
++            
++            {/* Identity Resolver Mode */}
++            <div className="mb-4 bg-zinc-50 dark:bg-[#121212] p-3 rounded-lg border border-zinc-200 dark:border-zinc-800">
++              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">Link as Alias to Address Book</p>
++              <select
++                 value={selectedContactAliasId}
++                 onChange={(e) => setSelectedContactAliasId(e.target.value)}
++                 className="w-full text-sm bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-md p-2 mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
++              >
++                 <option value="">Select an Identity to overwrite this text...</option>
++                 {contacts.map(c => (
++                    <option key={c.id} value={c.id}>{c.preferredName || c.firstName || c.originalName} {c.lastName || ""}</option>
++                 ))}
++              </select>
++              <button 
++                 onClick={submitIdentityLink}
++                 disabled={isSavingCorrection || !selectedContactAliasId}
++                 className="w-full justify-center flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-700 font-bold text-xs rounded-md transition disabled:opacity-50"
++              >
++                 {isSavingCorrection ? <Loader2 size={12} className="animate-spin"/> : <Globe size={12}/>}
++                 Map Alias & Rewrite Fast
++              </button>
++            </div>
++
++            {/* General Content Edit Mode */}
++            <div>
++               <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">General Content Correction</p>
++               <textarea 
++                 value={overrideInput}
++                 onChange={(e) => setOverrideInput(e.target.value)}
++                 placeholder="Type the exact text to replace the highlight with..."
++                 className="w-full text-sm bg-zinc-50 dark:bg-[#121212] border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 min-h-[60px] mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
++               />
++               <button 
++                 onClick={submitGeneralCorrection}
++                 disabled={isSavingCorrection || !overrideInput.trim()}
++                 className="w-full justify-center flex items-center gap-2 px-3 py-1.5 bg-zinc-800 text-white hover:bg-zinc-900 font-bold text-xs rounded-md transition disabled:opacity-50"
++               >
++                 {isSavingCorrection ? <Loader2 size={12} className="animate-spin"/> : <Target size={12}/>}
++                 Rapid Override
++               </button>
++            </div>
++            
++          </motion.div>
++        )}
++      </AnimatePresence>
++
++      <AnimatePresence>
++        {isStoryboardOpen && user && (
++           <StoryboardModal 
++              stories={stories} 
++              setStories={setStories} 
++              userId={user.uid} 
++              onClose={() => setIsStoryboardOpen(false)} 
++           />
++        )}
++      </AnimatePresence>
++
++    </div>
++  );
++}
++
++function StoryboardModal({ stories, setStories, userId, onClose }: any) {
++  const [localStories, setLocalStories] = useState<any[]>(() => {
++     return [...stories].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map((s, i) => ({
++        ...s,
++        _dragId: `${s.id}-${i}-${Math.random().toString(36).substr(2, 9)}`
++     }));
++  });
++  const [isSaving, setIsSaving] = useState(false);
++
++  const storiesByEra = Object.keys(ERA_ORDER).reduce((acc, era) => {
++    acc[era] = localStories.filter(s => s.era === era).sort((a,b) => (a.orderIndex || 0) - (b.orderIndex || 0));
++    return acc;
++  }, {} as Record<string, any[]>);
++
++  const handleReorder = (era: string, newOrder: any[]) => {
++    const updatedEraStories = newOrder.map((s, index) => ({ ...s, orderIndex: index }));
++    const newLocalStories = localStories.map(s => {
++       const found = updatedEraStories.find(u => u._dragId === s._dragId);
++       return found ? found : s;
++    });
++    setLocalStories(newLocalStories);
++  };
++
++  const handleEraChange = (storyDragId: string, newEra: string) => {
++    const newLocalStories = localStories.map(s => {
++       if (s._dragId === storyDragId) {
++          const currentMax = Math.max(0, ...localStories.filter(x => x.era === newEra).map(x => x.orderIndex || 0));
++          return { ...s, era: newEra, orderIndex: currentMax + 1 };
++       }
++       return s;
++    });
++    setLocalStories(newLocalStories);
++  };
++
++  const saveChanges = () => {
++    // 1. Optimistic Update: instantly update local state and close the modal
++    setStories(localStories);
++    onClose();
++
++    // 2. Background Processing: sync to Firebase without blocking the user
++    saveHighFidelityStories(userId, localStories).catch((e) => {
++      console.error("Failed background save:", e);
++    });
++  };
++
++  return (
++    <div className="fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-4">
++      <motion.div 
++        initial={{ opacity: 0, scale: 0.95 }}
++        animate={{ opacity: 1, scale: 1 }}
++        exit={{ opacity: 0, scale: 0.95 }}
++        className="bg-white dark:bg-zinc-950 w-full max-w-7xl h-[90vh] rounded-3xl overflow-hidden flex flex-col shadow-2xl border border-zinc-200 dark:border-zinc-800"
++      >
++         {/* HEADER */}
++         <div className="flex flex-col md:flex-row md:items-center justify-between p-6 border-b border-zinc-200 dark:border-zinc-800 gap-4">
++            <div>
++               <h2 className="text-2xl font-bold flex items-center gap-2"><Library /> Storyboard Editor</h2>
++               <p className="text-sm text-zinc-500">Drag to reorder chronologically within eras, or change an event's classification.</p>
++            </div>
++            <div className="flex gap-3 shrink-0">
++               <button onClick={onClose} disabled={isSaving} className="px-4 py-2 font-bold rounded-xl text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition border border-zinc-200 dark:border-zinc-800">Cancel</button>
++               <button onClick={saveChanges} disabled={isSaving} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-bold transition">
++                 {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save Timeline
++               </button>
++            </div>
++         </div>
++
++         {/* ERA JUMP NAV */}
++         <div className="bg-zinc-100 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-6 py-3 flex gap-2 overflow-x-auto no-scrollbar shrink-0">
++            {Object.keys(ERA_ORDER).sort((a,b)=>ERA_ORDER[a]-ERA_ORDER[b]).map(era => (
++               <button 
++                  key={`nav-${era}`}
++                  onClick={() => {
++                     const container = document.getElementById("storyboard-scroll-container");
++                     const target = document.getElementById(`era-col-${era}`);
++                     if (container && target) {
++                        const targetOffset = target.offsetLeft - container.offsetLeft - 24;
++                        container.scrollTo({ left: targetOffset, behavior: 'smooth' });
++                     }
++                  }}
++                  className="px-3 py-1.5 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-full text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-200 dark:hover:border-indigo-800 transition shrink-0 shadow-sm"
++               >
++                  {era}
++               </button>
++            ))}
++         </div>
++
++         {/* GRID BODY */}
++         <div id="storyboard-scroll-container" className="flex-1 overflow-x-auto p-6 bg-[#F6F5F0] dark:bg-[#0a0a0a] relative scroll-smooth">
++            <div className="flex gap-6 h-full items-start w-max pb-8">
++               {Object.entries(ERA_ORDER).sort((a,b)=>a[1]-b[1]).map(([eraKey, _]) => {
++                 const eraStories = storiesByEra[eraKey] || [];
++                 return (
++                   <div key={eraKey} id={`era-col-${eraKey}`} className="w-[320px] shrink-0 flex flex-col gap-3 h-full overflow-hidden transition-all">
++                      <div className="bg-white dark:bg-zinc-900 px-4 py-3 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-center justify-between shrink-0">
++                         <h3 className="font-bold text-sm tracking-widest uppercase text-indigo-900 dark:text-indigo-400">{eraKey}</h3>
++                         <span className="text-xs font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded-md border border-indigo-100 dark:border-indigo-900">{eraStories.length}</span>
++                      </div>
++
++                      <div className="flex-1 overflow-y-auto no-scrollbar pb-10">
++                        <Reorder.Group axis="y" values={eraStories} onReorder={(newOrder) => handleReorder(eraKey, newOrder)} className="flex flex-col gap-3">
++                          {eraStories.map((story, index) => (
++                             <Reorder.Item key={story._dragId} value={story} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-xl shadow-black/5 cursor-grab active:cursor-grabbing hover:border-indigo-400 group transition-colors">
++                                <div className="flex justify-between items-start mb-3 gap-2">
++                                   <div className="flex items-start gap-2 flex-1">
++                                      <span className="shrink-0 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900 text-indigo-600 dark:text-indigo-400 font-extrabold text-[10px] w-5 h-5 flex items-center justify-center rounded-full mt-0.5 shadow-sm">
++                                         {index + 1}
++                                      </span>
++                                      <h4 className="font-bold text-[15px] text-zinc-900 dark:text-zinc-100 leading-snug">{story.title}</h4>
++                                   </div>
++                                   <GripVertical size={16} className="text-zinc-300 group-hover:text-zinc-800 dark:group-hover:text-white shrink-0" />
++                                </div>
++                                <p className="text-xs text-zinc-500 line-clamp-3 mb-4 leading-relaxed font-medium">"{story.synopsis}"</p>
++                                
++                                <select 
++                                   value={story.era} 
++                                   onChange={(e) => handleEraChange(story._dragId, e.target.value)}
++                                   className="w-full text-xs font-bold text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-black border border-zinc-200 dark:border-zinc-800 p-2 rounded-lg cursor-pointer focus:outline-none focus:border-indigo-500 transition-colors"
++                                >
++                                   {Object.keys(ERA_ORDER).map(e => <option key={e} value={e}>{e}</option>)}
++                                </select>
++                             </Reorder.Item>
++                          ))}
++                          {eraStories.length === 0 && (
++                             <div className="border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl h-24 flex items-center justify-center text-xs text-zinc-400 font-bold uppercase tracking-widest bg-zinc-50/50 dark:bg-zinc-900/50">Empty</div>
++                          )}
++                        </Reorder.Group>
++                      </div>
++                   </div>
++                 );
++               })}
++            </div>
++         </div>
++      </motion.div>
+     </div>
+   );
+ }
+diff --git a/src/components/InterviewerModal.tsx b/src/components/InterviewerModal.tsx
+index e41b226..8923844 100644
+--- a/src/components/InterviewerModal.tsx
++++ b/src/components/InterviewerModal.tsx
+@@ -10,9 +10,10 @@ interface InterviewerModalProps {
+   userId: string;
+   onClose: () => void;
+   onSave: (transcript: string) => Promise<void>;
++  initialPrompt?: string;
+ }
+ 
+-export function InterviewerModal({ userId, onClose, onSave }: InterviewerModalProps) {
++export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: InterviewerModalProps) {
+   const [history, setHistory] = useState<{ role: string; text: string }[]>([]);
+   const historyRef = useRef<{ role: string; text: string }[]>([]);
+   const [imageBase64, setImageBase64] = useState<string | undefined>();
+@@ -178,9 +179,17 @@ export function InterviewerModal({ userId, onClose, onSave }: InterviewerModalPr
+       mediaRecorderRef.current.start();
+       setHasStarted(true);
+       
+-      // AI initiates conversation
+-      currentTurnIdRef.current += 1;
+-      triggerAiTurn(historyRef.current, currentTurnIdRef.current);
++      if (initialPrompt && historyRef.current.length === 0) {
++          // Immediately set AI's first turn to the initial prompt (typically a gap prompt)
++          const newMsg = { role: "assistant", text: initialPrompt };
++          setHistory([newMsg]);
++          historyRef.current = [newMsg];
++          speakUtterance(initialPrompt);
++      } else {
++          // AI initiates conversation completely dynamically via LLM
++          currentTurnIdRef.current += 1;
++          triggerAiTurn(historyRef.current, currentTurnIdRef.current);
++      }
+     } catch (err: any) {
+       console.error("Microphone access denied or not found:", err);
+       if (err.name === 'NotFoundError' || err.message.includes('Requested device not found')) {
+@@ -274,8 +283,11 @@ export function InterviewerModal({ userId, onClose, onSave }: InterviewerModalPr
+     setHistory(prev => [...prev, { role: "assistant", text: aiResponseText }]);
+     historyRef.current = [...historyRef.current, { role: "assistant", text: aiResponseText }];
+     
+-    // Speak response natively
+-    const utterance = new SpeechSynthesisUtterance(aiResponseText);
++    speakUtterance(aiResponseText);
++  };
++
++  const speakUtterance = (textToSpeak: string) => {
++    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+     utterance.rate = 0.95; // Slightly slower
+     utterance.pitch = 1.0;
+     
+diff --git a/src/lib/firebase/db.ts b/src/lib/firebase/db.ts
+index 4c248b9..0eeb885 100644
+--- a/src/lib/firebase/db.ts
++++ b/src/lib/firebase/db.ts
+@@ -90,6 +90,52 @@ export interface NotebookSource {
+   isSynced?: boolean; // Whether the RAG loop has already processed this source into HighFidelity stories
+ }
+ 
++export interface AudioPodcast {
++  id: string;
++  userId: string;
++  title: string;
++  subject: string;
++  durationOption: string;
++  transcript: {
++    speaker: "Host 1" | "Host 2";
++    text: string;
++  }[];
++  createdAt: Date | any;
++}
++
++export async function saveAudioPodcast(userId: string, podcast: Omit<AudioPodcast, 'id' | 'createdAt' | 'userId'>): Promise<string | null> {
++  try {
++    const docRef = await addDoc(collection(db, "podcasts"), {
++      ...podcast,
++      userId,
++      createdAt: serverTimestamp()
++    });
++    return docRef.id;
++  } catch (e) {
++    console.error("Failed to save podcast:", e);
++    return null;
++  }
++}
++
++export async function fetchAudioPodcasts(userId: string): Promise<AudioPodcast[]> {
++  try {
++    const q = query(
++      collection(db, "podcasts"),
++      where("userId", "==", userId)
++    );
++    const snap = await getDocs(q);
++    const docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AudioPodcast));
++    return docs.sort((a, b) => {
++        const aTime = a.createdAt?.seconds || 0;
++        const bTime = b.createdAt?.seconds || 0;
++        return bTime - aTime;
++    });
++  } catch (e) {
++    console.error("Failed to fetch podcasts:", e);
++    return [];
++  }
++}
++
+ export async function uploadNotebookSource(userId: string, fileName: string, fileSize: number, textContent: string): Promise<NotebookSource | null> {
+   try {
+     const sourcesRef = collection(db, "user_sources");
+@@ -164,6 +210,7 @@ export interface UserProfile {
+   culturalHeritage?: string;
+   primaryLanguage?: string;
+   secondaryLanguages?: string;
++  userOverrides?: string[];
+   trustScore?: number;
+   updatedAt?: any;
+ }
+@@ -237,6 +284,7 @@ export interface Contact {
+   userId: string;
+   originalName: string; // Original name from transcript (or import label)
+   completeName: string; // Corrected/Full name dynamically concatenated
++  preferredName?: string; // Explicit name for AI narrator to use
+   firstName?: string;
+   middleName?: string;
+   lastName?: string;
+diff --git a/src/lib/rag/index.ts b/src/lib/rag/index.ts
+index 696619c..8a22e21 100644
+--- a/src/lib/rag/index.ts
++++ b/src/lib/rag/index.ts
+@@ -76,6 +76,7 @@ export async function processTranscriptForRag(transcriptText: string): Promise<T
+     You are an expert archivist for Legacy Nexus, a platform that preserves life stories.
+     Your task is to segment a raw transcript into logical narrative chunks.
+     For each chunk, provide the text segment and 2-3 relevant "Wisdom Tags" (e.g., "#Resilience", "#CareerPivot").
++    CRITICAL CONSTRAINT: Tags MUST be short, atomic, single-concept nouns (max 1-2 words). Do not concatenate concepts into long sentences (e.g. NEVER use "#ImmigrantResilienceAndEducationalLegacy"). Instead, break complex ideas down into separate, atomic tags (e.g. "#Immigration", "#Resilience", "#Education").
+ 
+     Raw Transcript:
+     "${transcriptText}" // Using full context, Gemini Flash has a 1M token window.
+@@ -117,6 +118,73 @@ export async function processTranscriptForRag(transcriptText: string): Promise<T
+   return [];
+ }
+ 
++export async function generatePodcastTranscript(transcriptContext: string, focusArea: string, durationOption: string): Promise<{speaker: "Host 1" | "Host 2", text: string}[]> {
++  if (!transcriptContext.trim()) return [];
++  
++  // Approximate length targets based on durationOption (Short vs Long)
++  // Short = ~3-5 mins audio (approx 500-800 words), Long = 10+ mins (approx 1500-2000 words)
++  const lengthInstruction = durationOption.toLowerCase().includes("long") 
++    ? "aim for a long, deep-dive 10-15 minute discussion containing around 1500 to 2000 words. Dive deeply into specifics, tangents, and nuances." 
++    : "aim for a short, punchy 3-5 minute discussion containing around 500 to 800 words. Keep it focused and moving quickly.";
++
++  const prompt = `
++    You are an expert podcast production AI mimicking a highly popular, conversational "Deep Dive" podcast like NotebookLM's Audio Overview.
++    Based strictly on the source materials provided, write an engaging back-and-forth podcast transcript between two hosts: "Host 1" and "Host 2".
++    Host 1 is typically the primary driver/storyteller, and Host 2 is the inquisitive, amazed co-host reacting and asking excellent follow up questions.
++    
++    CRITICAL PERSPECTIVE RULES:
++    - You are two EXTERNAL podcast hosts discussing a historical archive or interview transcript. 
++    - You MUST maintain a third-person, documentary perspective.
++    - DO NOT adopt the first-person perspective of the narrator in the text. NEVER say "my father," "my grandfather," "I remember," or "when I was younger." 
++    - Translate all first-person accounts into the third-person. For example, if the text says "my grandfather grew up in Taiwan," you must say "Their grandfather grew up in Taiwan," or deduce the subject's name and say "Albert's grandfather grew up in Taiwan."
++    
++    The user has requested the podcast to specifically focus on the following subject: "${focusArea}".
++    Please ${lengthInstruction}
++    
++    Make the dialogue extremely natural. Use filler words appropriately (like "wow", "exactly", "it's crazy that...").
++    Do NOT output raw markdown styling. Do NOT include sound effects or stage directions like [Laughter] or [Sigh]. Keep it purely spoken text.
++    
++    Sources context:
++    ${transcriptContext}
++  `;
++
++  const response = await ai.models.generateContent({
++    model: "gemini-2.5-flash",
++    contents: prompt,
++    config: {
++      temperature: 0.8, // Slightly higher for more conversational creativity
++      responseMimeType: "application/json",
++      responseSchema: {
++        type: Type.ARRAY,
++        description: "The sequential dialogue lines of the podcast.",
++        items: {
++          type: Type.OBJECT,
++          properties: {
++            speaker: {
++              type: Type.STRING,
++              description: "Must be exactly 'Host 1' or 'Host 2'",
++              enum: ["Host 1", "Host 2"]
++            },
++            text: {
++              type: Type.STRING,
++              description: "The spoken dialogue line for the host. Plain text."
++            }
++          },
++          required: ["speaker", "text"]
++        }
++      }
++    }
++  });
++
++  if (response.text) {
++    let raw = response.text;
++    if (typeof raw === "function") raw = (raw as any)();
++    raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
++    return JSON.parse(raw) as {speaker: "Host 1" | "Host 2", text: string}[];
++  }
++  return [];
++}
++
+ export async function generateSynopsis(transcriptContext: string): Promise<string> {
+   if (!transcriptContext.trim()) return "No sources provided to generate a synopsis.";
+   try {
+@@ -187,7 +255,8 @@ export async function generateWisdomSummaries(transcriptContext: string): Promis
+   const prompt = `
+     You are an expert biographer for Legacy Nexus.
+     Analyze the full provided transcript and explicitly identify an extensive list of specific, granular life themes and events (e.g., "#FirstLove", "#Resilience", "#CareerPivot", "#Bowling", "#ChinatownLife").
+-    The number of tags should elegantly scale with the length and breadth of the transcript context (typically 10-30 tags depending on volume). Please do not artificially limit the tags; be specific, exhaustive, and avoid clumping details into a few broad corporate categories.
++    CRITICAL CONSTRAINT: Tags MUST be short, atomic, single-concept nouns (max 1-2 words). Do not concatenate concepts into long sentences (e.g. NEVER use "#ImmigrantResilienceAndEducationalLegacy"). Instead, break complex ideas down into separate, atomic tags (e.g. "#Immigration", "#Resilience", "#Education").
++    The number of tags should elegantly scale with the length and breadth of the transcript context (typically 30-50 tags depending on volume). Please do not artificially limit the tags; be exhaustive.
+     For each theme, write a compelling, comprehensive summary of the individual's view or experience regarding that theme, based on all the provided text.
+     The summary should not just be a snippet, but a thought-out synthesis of their perspective.
+     
+@@ -307,7 +376,7 @@ export async function generateLegacyIdentityContext(primaryRiasec: string, secon
+   return "You have forged a legacy deeply rooted in dynamic action and nuanced personal philosophy.";
+ }
+ 
+-export async function chatWithLegacyStream(transcriptContext: string, question: string, history: {role: string, text: string}[] = [], linguisticContext?: string, relationalContext?: string): Promise<ReadableStream> {
++export async function chatWithLegacyStream(transcriptContext: string, question: string, history: {role: string, text: string}[] = [], linguisticContext?: string, relationalContext?: string, systemOverrides?: string): Promise<ReadableStream> {
+   if (!transcriptContext.trim()) throw new Error("No context provided.");
+   let formattedHistory = history.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`).join("\\n");
+   
+@@ -323,6 +392,7 @@ export async function chatWithLegacyStream(transcriptContext: string, question:
+     - HALLUCINATION PREVENTION: If the exact answer is not clearly articulated in the specific fragments provided, you must explicitly tell the user that the retrieved memories don't contain the full detail, rather than hallucinating an incorrect narrative.
+     ${linguisticContext ? `- LINGUISTIC CORRECTIONS: The speaker's cultural background/languages are: ${linguisticContext}. If you output any foreign words, recipes, or phrases that were translated phonetically in the transcript, elegantly guestimate their correct native romanization (e.g., Pinyin/Characters) and provide an English translation in brackets. NEVER output poor phonetic gibberish (e.g., instead of "Upcount E", use "Pipa Duck / 琵琶鴨").` : ''}
+     ${relationalContext ? `- IDENTITY RESOLUTION ALIAS MAP: Use the following Identity Map to perfectly understand relationships and entity names: ${relationalContext}\n    - CONVERSATIONAL NAMING RULE: Do NOT awkwardly repeat full 'Complete Names' (e.g., 'Albert Yi Lei', 'Tiffany Ann Lei') over and over. Use natural, conversational references (e.g., 'Albert', 'Tiffany', 'your dad', 'his son') just as a human would. Only use full names if formally introducing a new entity for the first time or if necessary for disambiguation. Use common sense to make the dialogue feel natural.` : ''}
++    ${systemOverrides ? `- ABSOLUTE SYSTEM OVERRIDES: The user has manually corrected you in the past regarding specific facts. The following user-supplied corrections are ABSOLUTE TRUTHS. If your retrieved context contradicts these laws, you MUST obey these laws: ${systemOverrides}` : ''}
+     
+     Context:
+     "${transcriptContext}"
+@@ -360,6 +430,10 @@ export interface HighFidelityStory {
+   era: string;
+   title: string;
+   synopsis: string;
++  detailedNarrative?: string;
++  sandersonAdaptation?: string;
++  updatedAt?: number;
++  sandersonGeneratedAt?: number;
+   psychometrics: { label: string; val: number }[];
+   rubric: {
+     context: boolean;
+@@ -397,9 +471,11 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
+     Your task is to analyze the provided raw transcripts and extract distinct, high-fidelity narrative stories about the Main Subject.
+     For each extracted story, output the following structured data:
+     1. A short, compelling 'title'.
+-    2. The chronological 'era'. You MUST map the era strictly to one of the following exact strings: "Childhood", "Teens", "Twenties", "Thirties", "Forties", "Fifties+", or "Timeless" (Use "Timeless" for generic life advice, recipes, philosophical beliefs, or non-chronological skills).
+-    3. A concise 'synopsis' detailing the specific memory.
+-    4. Exactly 6 'psychometrics'. You MUST output an array containing exactly these 6 labels representing the RIASEC model: "Realistic", "Investigative", "Artistic", "Social", "Enterprising", and "Conventional". Evaluate each between 0 and 100 based on how intensely the theme applies to the story (0 if not applicable).
++    2. The chronological 'era'. You MUST map the era strictly to one of the following exact strings: "Childhood", "Teens", "Twenties", "Thirties", "Forties", "Fifties+", or "Timeless". 
++       - If you output "Timeless", you MUST also assign a 'timelessCategory' string specifying the exact nature of the timeless knowledge (e.g., "Family Recipe", "Life Philosophy", "Core Values", "Professional Skill", "Tradition"). If the era is not "Timeless", omit this field.
++    3. A concise 'synopsis' containing a short 1-2 sentence hook or summary.
++    4. A 'detailedNarrative' containing an EXHAUSTIVELY detailed, multi-paragraph memoir-style recounting of the memory. You MUST write at least 3 to 5 robust paragraphs. Preserve every single factual detail, emotional nuance, timeline progression, name, and literal piece of dialogue from the transcript. Do NOT summarize or condense this field; paint a vivid, chronological, and comprehensive picture of the event just like a professional biography chapter.
++    5. Exactly 6 'psychometrics'. You MUST output an array containing exactly these 6 labels representing the RIASEC model: "Realistic", "Investigative", "Artistic", "Social", "Enterprising", and "Conventional". Evaluate each between 0 and 100 based on how intensely the theme applies to the story (0 if not applicable).
+        - TWO-TIER WEIGHTING SYSTEM: You MUST aggressively weight the intensity of the RIASEC dimensions based on the 'primaryCategory' extraction you just mapped:
+          > If Relational or Resilience -> heavily weight 'Social'.
+          > If Achievement or Impact -> heavily weight 'Enterprising'.
+@@ -408,11 +484,11 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
+          > If Philosophical -> heavily weight 'Investigative'.
+          > If Physicality -> heavily weight 'Realistic'.
+          > If Competence -> weight Realistic, Investigative, or Conventional depending on the task type (hand-skill vs theory vs records).
+-    5. A completeness 'rubric' containing 3 booleans tracking if the story explicitly contains:
++    6. A completeness 'rubric' containing 3 booleans tracking if the story explicitly contains:
+        - 'context': Does it establish the setting and background?
+        - 'conflict': Is there a clear challenge, pivot, or escalation?
+        - 'resolution': Is the outcome explained?
+-    6. An 'extraction' object analyzing the lesson or moral using a 0-3 Depth Scale. Use the following Step-by-Step Identification Procedure:
++    7. An 'extraction' object analyzing the lesson or moral using a 0-3 Depth Scale. Use the following Step-by-Step Identification Procedure:
+        - Locate the Reflection: Ignore the "Action" of the story. Focus only on the narrator's "Post-Event Commentary."
+        - Apply the Elimination Filter to assign a 'primaryCategory' and a distinct 'secondaryCategory'. MUST strictly be one of these exact strings: "Resilience", "Relational", "Philosophical", "Competence", "Self-Awareness", "Regret", "Achievement", "Impact", "Stewardship", "Expression", "Physicality", or "None" (if level 0).
+          > If getting back up/endurance -> Resilience.
+@@ -431,13 +507,13 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
+        - 'insightSummary': A concise summary explaining the narrator's personal subjective realization.
+        - 'legacyLesson': The Transferable Wisdom. Convert the narrator's specific experience into a generalized universal truth.
+        - 'rawQuote': An exact, verbatim quote from the transcript demonstrating this extraction (or an empty string if none exists).
+-    7. LINGUISTIC CORRECTIONS: The narrator's cultural heritage/language background is: ${culturalContext || "Unknown"}. If the English transcript contains phonetically misspelled foreign words (e.g., Cantonese or Mandarin words rendered incorrectly into broken English by the audio transcriber), use your linguistic knowledge to intelligently deduce the intended word. Add each correction to the 'linguisticCorrections' array.
+-    8. Calculate the 'impact_metadata' containing three core properties that assign gravitational weight to this specific story in the database:
++    8. LINGUISTIC CORRECTIONS: The narrator's cultural heritage/language background is: ${culturalContext || "Unknown"}. If the English transcript contains phonetically misspelled foreign words (e.g., Cantonese or Mandarin words rendered incorrectly into broken English by the audio transcriber), use your linguistic knowledge to intelligently deduce the intended word. Add each correction to the 'linguisticCorrections' array.
++    9. Calculate the 'impact_metadata' containing three core properties that assign gravitational weight to this specific story in the database:
+        - 'emotional_intensity' (1-5 scale): Score Intensity 1-2 (Snapshot): Casual mentions, low emotional stakes, routine events. Score 3-4 (Pivot): Significant life changes, clear conflict, emotional vulnerability, lessons learned. Score 5 (Core): Life-defining moments, extreme hardship/success, fundamental shifts in identity.
+        - 'narrative_complexity' (1-5 scale): How intricate is the sequence of events and decision making?
+        - 'duration_weight' (1.0 to 2.0 scale): Evaluate the raw verbosity and detail of this specific event in the transcript. 1.0 for brief mentions, 1.5 for dedicated paragraphs, 2.0 for exhaustive, multi-paragraph sagas.
+-    9. Extract any unique names of people explicitly mentioned in the story into the 'peopleMentioned' string array.
+-    10. 'gapPrompt': If this story lacks a mature extraction ('present' is false or 'depthLevel' <= 1), generate a highly customized, unique question about this SPECIFIC story that challenges the narrator to find the overarching moral lesson. Do NOT use generic/repetitive language formatting. Directly reference the specific names and concrete events of this story to formulate a probing question bridging the literal event to a universal truth.
++    10. Extract any unique names of people explicitly mentioned in the story into the 'peopleMentioned' string array.
++    11. 'gapPrompt': If this story lacks conflict, lacks a clear resolution, lacks sufficient contextual details, OR lacks a mature extraction ('present' is false), it is considered incomplete. If incomplete, generate a highly customized, unique question about this SPECIFIC story that challenges the narrator to fill in those missing elements to make a complete story. Do NOT use generic/repetitive language formatting. Directly reference the specific names and concrete events of this story to formulate a probing question seeking the missing context, conflict, resolution, or overarching moral lesson.
+     ${relationalContext ? `CRITICAL RELATIONAL CONTEXT: Normalize and refer to individuals using the following Identity Map when generating synopses and labels: ${relationalContext}` : ''}
+ 
+     Extract 1 to 3 highly granular, profoundly distinct thematic events from this specific chunk of text. Do NOT lazily merge multiple life events into a single generalized card. Demand granularity. Do not hallucinate events that are not explicitly in the text.
+@@ -458,8 +534,10 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
+             properties: {
+               id: { type: Type.STRING },
+               era: { type: Type.STRING },
++              timelessCategory: { type: Type.STRING },
+               title: { type: Type.STRING },
+               synopsis: { type: Type.STRING },
++              detailedNarrative: { type: Type.STRING },
+               psychometrics: {
+                 type: Type.ARRAY,
+                 items: {
+@@ -560,8 +638,8 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
+     Your task:
+     1. Read the newly extracted raw stories.
+     2. Determine if the events described in the raw stories fall into the context of any EXISTING stories.
+-       - If YES: MERGE them. UPDATE the existing story. You can rewrite the 'synopsis' to include the new robust details, drastically update the 'psychometrics' based on the newly merged context, and update the 'rubric' booleans. Remove the 'gapPrompt' if 'extraction' becomes true. If 'extraction' remains false, completely REWRITE the 'gapPrompt' to explicitly reference the newly synthesized narrative details and ask a highly specific, penetrating question to prompt the narrator for a deeper moral lesson.
+-       - If NO: CREATE entirely new story objects and APPEND them to the array. Do not lazily summarize them; preserve their granularity. If 'extraction' is false, generate a highly specific, context-aware 'gapPrompt' referencing literal story events.
++       - If YES: MERGE them. UPDATE the existing story. You MUST rewrite the 'detailedNarrative' to cleanly and EXHAUSTIVELY integrate all new robust facts and dialogue from the new story into the master narrative. Ensure the resulting 'detailedNarrative' is a massive, multi-paragraph memoir (3+ paragraphs). You can rewrite the 'synopsis' if the core hook changes, drastically update the 'psychometrics' based on the newly merged context, and update the 'rubric' booleans. Remove the 'gapPrompt' if the rubric and extraction becomes fully complete. If any elements are missing (context, conflict, resolution, or extraction), completely REWRITE the 'gapPrompt' to explicitly reference the newly synthesized narrative details and ask a highly specific, penetrating question to prompt the narrator for the missing elements to complete the story.
++       - If NO: CREATE entirely new story objects and APPEND them to the array. Do not lazily summarize them; preserve their granularity. If the story lacks context, conflict, resolution, or extraction, generate a highly specific, context-aware 'gapPrompt' referencing literal story events seeking the missing elements.
+     3. Ensure ALL stories (existing and new) strictly adhere to the previously defined format. 
+        - 'era' MUST strictly be "Childhood", "Teens", "Twenties", "Thirties", "Forties", "Fifties+", or "Timeless" (Use "Timeless" for generic themes, recipes, and life philosophies).
+     4. LINGUISTIC CORRECTIONS: The narrator's cultural heritage/language background is: ${culturalContext || "Unknown"}. If the synopses contain phonetically misspelled foreign words, intelligently deduce the intended word and log it to 'linguisticCorrections'.
+@@ -597,6 +675,7 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
+               era: { type: Type.STRING },
+               title: { type: Type.STRING },
+               synopsis: { type: Type.STRING },
++              detailedNarrative: { type: Type.STRING },
+               psychometrics: {
+                 type: Type.ARRAY,
+                 items: {
+@@ -680,7 +759,7 @@ export async function recompileHighFidelityStories(cachedStories: HighFidelitySt
+     2. Normalize ALL mentions inside the 'title' and 'synopsis' fields strictly following the Identity Map provided below. Replace all invalid aliases with the canonical 'Complete Name'.
+     3. Update the 'peopleMentioned' string array to reflect only the canonical names.
+     4. Do not alter 'id', 'era', 'psychometrics', or 'rubric'.
+-    5. CRITICAL GAP PROMPT BACKFILL: If an existing story is missing an explicit 'gapPrompt' OR if its current extraction is weak (depthLevel <= 1), you MUST actively backfill and generate a highly customized 'gapPrompt' that challenges the narrator to find the overarching moral lesson. Directly reference the specific literal events and canonical names from the synopsis. Do NOT use generic/repetitive language.
++    5. CRITICAL GAP PROMPT BACKFILL: If an existing story is missing an explicit 'gapPrompt' AND it lacks context, conflict, resolution, or a mature extraction, you MUST actively backfill and generate a highly customized 'gapPrompt'. The prompt must challenge the narrator to provide the missing elements to make a complete story. Directly reference the specific literal events and canonical names from the synopsis. Do NOT use generic/repetitive language.
+     
+     CRITICAL RELATIONAL CONTEXT: Normalize to this Identity Map: ${relationalContext}
+     
+@@ -989,3 +1068,90 @@ export async function extractDemographicsFromTranscript(transcriptText: string):
+   return {};
+ }
+ 
++export async function generateSandersonAdaptation(story: HighFidelityStory, editorialNotes?: string): Promise<string> {
++  const prompt = `
++### System Prompt: The Realistic Sanderson Storyteller
++
++**Agent Persona:** You are an expert narrative architect and master storyteller trained in the specific writing philosophies of Brandon Sanderson, as well as core cognitive storytelling principles. 
++
++**Objective:** Transform raw biographical data, interviews, or daily reflections into a compelling, realistic epic. You will treat real-world skills as "hard magic systems," focus heavily on character limitations, and use strict cause-and-effect plotting, while keeping the narrative grounded in reality (no supernatural elements).
++
++#### Core Processing Instructions
++
++**1. The "Hard Skill" System (Applying Sanderson's First Law)**
++*   **Directive:** Treat the protagonist's primary skill (e.g., a sport, a profession, a hobby) like a "Hard Magic" system. 
++*   **Action:** Explicitly define the physical rules, mechanics, and training required to master this skill. Do not simply say a character is "good" at something; explain the leverage, the muscle memory, or the specific technique involved. The reader must understand how the "magic" works so that when the character uses it to solve a problem later, it feels earned.
++
++**2. Limitations Over Powers (Applying Sanderson's Second Law)**
++*   **Directive:** Focus on what the character *cannot* do. Flaws, restrictions, and limitations are far more interesting than a character's strengths. 
++*   **Action:** Identify the protagonist's specific limitation (e.g., they lack finesse, they are too small, they are easily exhausted). The character must not magically overcome this limitation; instead, they must lean into it and find a gritty, creative workaround to succeed *despite* it.
++
++**3. The CPR Character Framework**
++*   **Directive:** Ensure the protagonist hits the three sliding scales of CPR: Capable, Proactive, and Relatable.
++*   **Action:** 
++    *   *Capable:* Give them a highly specific area of expertise.
++    *   *Proactive:* They must make choices that drive the plot forward. If they are trapped, they must at least try to plan or train.
++    *   *Relatable:* Give them a struggle (e.g., isolation, cruelty, a "sacred flaw") that instantly generates audience empathy.
++
++**4. Promise, Progress, Payoff (PPP Plotting)**
++*   **Directive:** Structure the narrative arc around these three beats.
++*   **Action:**
++    *   *Promise:* Start the story at the exact emotional opposite of the ending realization. If the story ends in acceptance, it must begin with a promise of isolation.
++    *   *Progress:* Show the character attempting to reach their goal through "try/fail cycles". They must face obstacles, try the most intelligent solution, and fail due to their limitations, forcing them to adapt. Connect all scenes with "but" and "therefore" cause-and-effect logic.
++    *   *Payoff:* Deliver a "stand-up-and-cheer" moment where the internal character growth aligns with the external physical victory. 
++
++**5. The Apprentice Arc**
++*   **Directive:** Whenever a mentor figure is present, utilize the apprentice arc.
++*   **Action:** Show the protagonist learning the foundational "rules" from a master, but ultimately diverging. The protagonist must face a challenge the master cannot solve, forcing them to apply the skills in a uniquely personal, specialized way.
++
++**6. The Pyramid of Abstraction (Sensory Grounding)**
++*   **Directive:** Avoid abstract summaries and "navel-gazing" (e.g., "He felt sad and alienated"). 
++*   **Action:** Pull the reader down the "pyramid of abstraction" by anchoring every scene in concrete, sensory details first (e.g., the heavy thud of a ball, the smell of rain, the rough texture of wool). Only after establishing these concrete physical anchors should you move upward into the character's abstract internal thoughts.
++
++**7. The Five-Second Moment**
++*   **Directive:** Funnel the entire story toward a singular climax of realization.
++*   **Action:** Discard unnecessary chronological reporting. Identify the "five-second moment"—the exact instant the protagonist's heart moved and their perspective fundamentally changed. Every detail in the story must exist solely to make this final realization hit as hard as possible. **CRITICAL: DO NOT explicitly use the phrases "five-second moment" or "in that moment" in the prose. The reader must feel the realization through the action, not be told about it.**
++
++#### Formatting & Output Guidelines
++1.  **Tone:** Epic, gritty, yet ultimately hopeful. The tone should feel like high fantasy translated into real-world physics.
++2.  **Cinematic Immediacy:** Start as close to the ending as possible. Use vivid, immediate action to open the story.
++3.  **Output Strict Markdown:** Output ONLY the markdown text of the story chapters. Do not include markdown headers like "\`\`\`markdown".
++4.  **Zero Hallucinated Proper Nouns:** You MUST NOT invent any specific names for people, places, or businesses if they are not explicitly mentioned in the source material. If the name of a character's wife is not provided, simply use "his wife" or "she" rather than inventing a name like "Mary".
++
++---
++**Input Story Data:**
++Title: ${story.title}
++Era: ${story.era}
++Synopsis: ${story.synopsis}
++Detailed Narrative / Raw Transcript Context: ${story.detailedNarrative || "N/A"}
++Extracted Lesson/Realization: ${story.extraction?.legacyLesson || "N/A"}
++
++${editorialNotes ? `
++---
++### CRITICAL EDITORIAL REVISION
++The user has reviewed a previous draft of this chapter and provided the following mandatory correction notes. You MUST rewrite the chapter specifically addressing and fixing the issue noted below:
++**Feedback:**
++${editorialNotes}
++---
++` : ''}
++  `;
++
++  try {
++    const response = await ai.models.generateContent({
++      model: "gemini-2.5-flash",
++      contents: prompt,
++      config: {
++        temperature: 0.8
++      }
++    });
++
++    if (response.text) {
++      let raw = response.text;
++      if (typeof raw === "function") raw = (raw as any)();
++      return raw.replace(/^\`\`\`markdown/, '').replace(/\`\`\`$/, '').trim();
++    }
++  } catch (error) {
++    console.error("Failed to generate Sanderson adaptation:", error);
++  }
++  return "Failed to adapt story.";
++}
+diff --git a/src/lib/rag/nexus.ts b/src/lib/rag/nexus.ts
+deleted file mode 100644
+index 6e3ea7b..0000000
+--- a/src/lib/rag/nexus.ts
++++ /dev/null
+@@ -1,49 +0,0 @@
+-import { Type } from "@google/genai";
+-import { ai } from "./client";
+-import { Transcript } from "../../types";
+-
+-/**
+- * Uses gemini-2.5-pro for deep reasoning to extract precise interpersonal NexusLinks
+- */
+-export async function extractNexusLinks(transcript: Transcript): Promise<{ name: string; context: string }[]> {
+-  const prompt = `
+-    You are an AI extracting interpersonal connections from a personal history transcript.
+-    
+-    Transcript Title: ${transcript.title}
+-    Transcript Text: "${transcript.text}"
+-    
+-    Task: Identify any specific individuals mentioned in this story (friends, family members, colleagues). 
+-    Extract their name and a brief 1-sentence summary of the event they were involved in.
+-    Return an empty array if no specific external peoples' names are mentioned.
+-  `;
+-
+-  const response = await ai.models.generateContent({
+-    model: "gemini-2.5-pro",
+-    contents: prompt,
+-    config: {
+-      responseMimeType: "application/json",
+-      responseSchema: {
+-        type: Type.ARRAY,
+-        description: "List of individuals referenced in the transcript.",
+-        items: {
+-          type: Type.OBJECT,
+-          properties: {
+-            name: {
+-              type: Type.STRING,
+-              description: "The name of the individual mentioned.",
+-            },
+-            context: {
+-              type: Type.STRING,
+-              description: "A 1-sentence summary of the event this person was involved in.",
+-            },
+-          },
+-        },
+-      },
+-    },
+-  });
+-
+-  if (response.text) {
+-    return JSON.parse(response.text);
+-  }
+-  return [];
+-}
