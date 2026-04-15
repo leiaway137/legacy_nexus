@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Loader2, FileText, Trash2, Database, Clock, Bot } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
-import { fetchUserSources, deleteNotebookSource, NotebookSource, saveHighFidelityStories, saveChatHistory } from "@/lib/firebase/db";
+import { fetchUserSources, deleteNotebookSource, NotebookSource, saveHighFidelityStories, saveChatHistory, deleteAllUserContacts, saveDashboardState } from "@/lib/firebase/db";
 import { deleteAllPineconeResourcesAction, embedStoriesToPineconeAction, extractHighFidelityStoriesAction } from "@/app/actions";
 
 export default function SourcesPage() {
@@ -41,6 +41,9 @@ export default function SourcesPage() {
             await embedStoriesToPineconeAction(user.uid, "nexus-vault", recompiled);
         } else {
             await saveHighFidelityStories(user.uid, []);
+            await deleteAllUserContacts(user.uid);
+            await saveDashboardState(user.uid, null);
+            await saveChatHistory(user.uid, []);
             await deleteAllPineconeResourcesAction(user.uid);
         }
     } catch (e) {

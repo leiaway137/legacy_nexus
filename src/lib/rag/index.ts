@@ -1,5 +1,6 @@
 import { Type } from "@google/genai";
 import { ai } from "./client";
+import { UNIVERSAL_CAST } from "../constants";
 export * from "./interviewer";
 
 export async function generateTextEmbedding(text: string): Promise<number[]> {
@@ -65,6 +66,152 @@ export async function identifyDocumentPerspective(documentText: string): Promise
     return "Unspecified personal perspective.";
   }
 }
+
+// ---- DOCUMENT INTELLIGENCE ANALYSIS (Step 0) ----
+
+export interface SpeakerProfile {
+  label: string; // e.g. "Speaker A", "Speaker B"
+  role: string; // e.g. "Interviewer (Son)", "Subject (Father)"
+  name: string; // Deduced name if available, e.g. "Albert"
+  toneDescription: string; // e.g. "Anecdotal, technical, storytelling"
+  keyTopics: string[]; // e.g. ["Taiwan childhood", "radiation safety"]
+  relationshipToSubject: string; // e.g. "Son of subject", "The subject themselves"
+}
+
+export interface AnchorPoint {
+  type: "direct_identification" | "relationship_marker" | "career_marker" | "location_marker";
+  quote: string; // The exact text fragment that serves as evidence
+  speaker: string; // Which speaker label this anchors to
+  insight: string; // What this tells us, e.g. "Subject identifies himself as Albert"
+}
+
+export interface DocumentIntelligence {
+  documentType: "oral_history_interview" | "balanced_conversation" | "prose_report" | "monologue" | "mixed";
+  speakerProfiles: SpeakerProfile[];
+  anchorPoints: AnchorPoint[];
+  mainSubject: {
+    name: string;
+    summary: string; // One-line description of who they are
+  };
+  powerAsymmetry: boolean; // true if one person clearly drives the interview
+  recommendedFormat: "DIALOGUE" | "REPORT";
+  confidence: number; // 0-100, how confident the AI is in its analysis
+}
+
+export async function analyzeDocumentIntelligence(documentText: string): Promise<DocumentIntelligence> {
+  // Use up to ~8000 chars for analysis — enough to identify patterns without burning tokens
+  const sample = documentText.substring(0, 8000);
+
+  const prompt = `
+    You are an expert archival document analyst for Legacy Nexus.
+    Your task is to deeply analyze the following raw, unstructured text and produce a structured intelligence report about it BEFORE any formatting or reconstruction takes place.
+
+    ANALYSIS OBJECTIVES:
+    1. DOCUMENT TYPE CLASSIFICATION: Determine whether this is an "oral_history_interview" (one person guiding a chronological life story), "balanced_conversation" (two people contributing equally), "prose_report" (single-author written narrative), "monologue" (single speaker, no interviewer), or "mixed" (elements of multiple types).
+    2. SPEAKER PROFILING: Identify all distinct speakers. For each, deduce their:
+       - A canonical label (e.g. "Speaker A", "Speaker B")
+       - Their role (e.g. "Interviewer (Son)", "Subject (Father/Albert)")
+       - Their actual name if deducible from the text
+       - Their tone and speaking style
+       - Key topics they discuss
+       - Their relationship to the main biographical subject
+    3. ANCHOR POINTS: Find specific sentences or phrases where speakers identify themselves or each other (names, relationships like "your aunt", career details like "cyclotron", location markers like "Chinatown"). These are critical evidence points.
+    4. MAIN SUBJECT IDENTIFICATION: Who is the PRIMARY biographical subject of this document? What is their name and a one-line summary?
+    5. POWER ASYMMETRY: Is one person clearly asking questions while the other provides long-form answers? If yes, set powerAsymmetry to true.
+    6. FORMAT RECOMMENDATION: Based on all of the above, should this be formatted as "DIALOGUE" (speaker-attributed chat bubbles) or "REPORT" (academic prose)?
+    7. CONFIDENCE: Rate 0-100 how confident you are in your overall analysis.
+
+    CRITICAL RULES:
+    - Do NOT hallucinate speakers. If only one voice is present, report only one speaker.
+    - Base everything strictly on text evidence. If a name isn't mentioned, use "Unknown" for the name.
+    - For anchor points, use exact quotes from the text.
+
+    Raw Text Sample:
+    "${sample}"
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        temperature: 0.1,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            documentType: {
+              type: Type.STRING,
+              enum: ["oral_history_interview", "balanced_conversation", "prose_report", "monologue", "mixed"]
+            },
+            speakerProfiles: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  label: { type: Type.STRING },
+                  role: { type: Type.STRING },
+                  name: { type: Type.STRING },
+                  toneDescription: { type: Type.STRING },
+                  keyTopics: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  relationshipToSubject: { type: Type.STRING }
+                },
+                required: ["label", "role", "name", "toneDescription", "keyTopics", "relationshipToSubject"]
+              }
+            },
+            anchorPoints: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  type: { type: Type.STRING, enum: ["direct_identification", "relationship_marker", "career_marker", "location_marker"] },
+                  quote: { type: Type.STRING },
+                  speaker: { type: Type.STRING },
+                  insight: { type: Type.STRING }
+                },
+                required: ["type", "quote", "speaker", "insight"]
+              }
+            },
+            mainSubject: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                summary: { type: Type.STRING }
+              },
+              required: ["name", "summary"]
+            },
+            powerAsymmetry: { type: Type.BOOLEAN },
+            recommendedFormat: { type: Type.STRING, enum: ["DIALOGUE", "REPORT"] },
+            confidence: { type: Type.INTEGER }
+          },
+          required: ["documentType", "speakerProfiles", "anchorPoints", "mainSubject", "powerAsymmetry", "recommendedFormat", "confidence"]
+        }
+      }
+    });
+
+    if (response.text) {
+      let raw = response.text;
+      if (typeof raw === "function") raw = (raw as any)();
+      raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
+      return JSON.parse(raw) as DocumentIntelligence;
+    }
+  } catch (error) {
+    console.error("Failed to analyze document intelligence:", error);
+  }
+
+  // Fallback: unknown single speaker
+  return {
+    documentType: "mixed",
+    speakerProfiles: [],
+    anchorPoints: [],
+    mainSubject: { name: "Unknown", summary: "Could not determine the main subject." },
+    powerAsymmetry: false,
+    recommendedFormat: "DIALOGUE",
+    confidence: 0
+  };
+}
+
+// ---- TRANSCRIPT CHUNKING ----
 
 export interface TranscriptChunk {
   text: string;
@@ -433,6 +580,8 @@ export interface HighFidelityStory {
   timelessCategory?: string;
   synopsis: string;
   detailedNarrative?: string;
+  anonymizedSynopsis?: string;
+  anonymizedDetailedNarrative?: string;
   sandersonAdaptation?: string;
   updatedAt?: number;
   sandersonGeneratedAt?: number;
@@ -1156,4 +1305,143 @@ ${editorialNotes}
     console.error("Failed to generate Sanderson adaptation:", error);
   }
   return "Failed to adapt story.";
+}
+
+export async function generateUniversalCastMapping(stories: HighFidelityStory[], existingMap: Record<string, string> = {}): Promise<Record<string, string>> {
+  if (stories.length === 0) return existingMap;
+
+  // Extract all unique names from stories
+  const uniqueNames = new Set<string>();
+  stories.forEach(s => {
+    s.peopleMentioned?.forEach(p => uniqueNames.add(p));
+  });
+
+  const namesToMap = Array.from(uniqueNames).filter(n => !existingMap[n]);
+  if (namesToMap.length === 0) return existingMap;
+
+  const prompt = `
+    You are the Casting Director for Legacy Nexus.
+    We use a fixed "Universal Cast" of actors and a fixed "SNL-Style Staging" with fictional cities and companies.
+    
+    The Universal Cast & Setting Roster is:
+    ${JSON.stringify(UNIVERSAL_CAST, null, 2)}
+    
+    Your task is to assign these universal actors to the real-life names, and these fictional settings to the real-life locations/companies mentioned in the stories. 
+    You must output a JSON dictionary mapping the real entity to the Cast/Setting Name. 
+    Make logical choices based on typical family structures and city associations. 
+    Do NOT invent new cast names or cities. Use ONLY names from the Universal Cast. Multiple real people or places can technically be mapped to the same setting if they fill similar minor roles.
+    
+    Real Entities (People, Companies, Cities) needing casting:
+    ${JSON.stringify(namesToMap)}
+    
+    Output strictly a JSON object like: { "RealEntity": "UniversalName" }
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          additionalProperties: { type: Type.STRING }
+        }
+      }
+    });
+
+    if (response.text) {
+      let raw = response.text;
+      if (typeof raw === "function") raw = (raw as any)();
+      raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
+      const newMappings = JSON.parse(raw);
+      return { ...existingMap, ...newMappings };
+    }
+  } catch (error) {
+    console.error("Failed to generate cast mapping:", error);
+  }
+  
+  return existingMap;
+}
+
+export async function generateAnonymizedStories(stories: HighFidelityStory[], pseudoMap: Record<string, string> = {}): Promise<HighFidelityStory[]> {
+  if (stories.length === 0) return [];
+  
+  // To avoid massive payload errors or context overflow, we'll anonymize them in chunks of 5
+  const chunkedStories: HighFidelityStory[][] = [];
+  for (let i = 0; i < stories.length; i += 5) {
+     chunkedStories.push(stories.slice(i, i + 5));
+  }
+  
+  const anonymizedStories: HighFidelityStory[] = [];
+  
+  for (const chunk of chunkedStories) {
+    const prompt = `
+      You are an expert privacy archivist.
+      Your task is to take the following array of personal stories and return a strictly redacted, Anonymized version of them.
+      
+      CRITICAL NEW DIRECTIVE: THE UNIVERSAL ACTOR CAST
+      You MUST strictly use the following Pseudonym Dictionary to replace names. This is an unbreakable rule to maintain timeline consistency.
+      Dictionary Mapping (Original Name -> Actor Name):
+      ${JSON.stringify(pseudoMap, null, 2)}
+      
+      RULES:
+      1. Replace EVERY original name, city, or institution found in the dictionary exactly with its mapped Actor Name or Fictional Setting. (e.g. if Albert->Leo, repairing "Albert went to IBM" -> "Leo went to Apex Corporation").
+      2. If you encounter a name, company, or specific city NOT in the dictionary, replace it with a structural bracket (e.g., "[A friend]", "[A major city]", "[A tech company]"). 
+      3. DO NOT redact the general wisdom, emotional weight, or the lessons learned. The stories must still be readable and emotionally engaging.
+      4. Return an array of objects containing the story 'id', the redacted 'anonymizedSynopsis', and the effectively redacted 'anonymizedDetailedNarrative'.
+      
+      Input Stories JSON:
+      ${JSON.stringify(chunk.map(s => ({ id: s.id, synopsis: s.synopsis, narrative: s.detailedNarrative })))}
+    `;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                anonymizedSynopsis: { type: Type.STRING },
+                anonymizedDetailedNarrative: { type: Type.STRING }
+              },
+              required: ["id", "anonymizedSynopsis", "anonymizedDetailedNarrative"]
+            }
+          }
+        }
+      });
+
+      if (response.text) {
+        let raw = response.text;
+        if (typeof raw === "function") raw = (raw as any)();
+        raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
+        const results = JSON.parse(raw) as {id: string, anonymizedSynopsis: string, anonymizedDetailedNarrative: string}[];
+        
+        for (const s of chunk) {
+           const match = results.find(r => r.id === s.id);
+           if (match) {
+              anonymizedStories.push({
+                 ...s,
+                 anonymizedSynopsis: match.anonymizedSynopsis,
+                 anonymizedDetailedNarrative: match.anonymizedDetailedNarrative
+              });
+           } else {
+              anonymizedStories.push(s);
+           }
+        }
+      } else {
+        anonymizedStories.push(...chunk);
+      }
+    } catch (e) {
+      console.error("Anonymization batch failed", e);
+      anonymizedStories.push(...chunk);
+    }
+  }
+  
+  return anonymizedStories;
 }

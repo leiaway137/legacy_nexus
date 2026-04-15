@@ -5,7 +5,7 @@ import Link from "next/link";
 import ReactMarkdown from 'react-markdown';
 import { ArrowLeft, Loader2, Bot, User, TextQuote, RefreshCw } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
-import { fetchUserSources, updateNotebookSourceParsedContent, NotebookSource, fetchUserProfile } from "@/lib/firebase/db";
+import { fetchUserSources, updateNotebookSourceParsedContent, NotebookSource, fetchUserProfile, updateNotebookSourceIntelligence } from "@/lib/firebase/db";
 import { useParams } from "next/navigation";
 
 export default function SourceViewerPage() {
@@ -16,6 +16,7 @@ export default function SourceViewerPage() {
   const [source, setSource] = useState<NotebookSource | null>(null);
   const [parsedChunks, setParsedChunks] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [analysisStage, setAnalysisStage] = useState("");
   const [errorLocal, setErrorLocal] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   
@@ -59,6 +60,33 @@ export default function SourceViewerPage() {
               throw new Error("UNABLE_TO_PARSE: This document seems to have no machine-readable text (it may be a scanned image). Please re-upload a text-searchable version.");
           }
 
+          let currentIntelligence = targetSource.intelligence;
+
+          // Step 1: Analyze Document Intelligence if missing
+          if (!currentIntelligence) {
+              setAnalysisStage("Analyzing Speakers & Context...");
+              const analyzeRes = await fetch("/api/analyze-transcript", {
+                  method: "POST",
+                  headers: {"Content-Type": "application/json"},
+                  body: JSON.stringify({ textContent: targetSource.textContent })
+              });
+              
+              if (!analyzeRes.ok) {
+                  const errData = await analyzeRes.json().catch(() => ({}));
+                  throw new Error(errData.error || `Analysis Error ${analyzeRes.status}`);
+              }
+              
+              const analyzeData = await analyzeRes.json();
+              currentIntelligence = analyzeData.intelligence || analyzeData; // handle {intelligence: ...} or direct object mapping
+
+              if (targetSource.id && currentIntelligence) {
+                  await updateNotebookSourceIntelligence(targetSource.id, currentIntelligence);
+                  setSource(prev => prev ? { ...prev, intelligence: currentIntelligence } : prev);
+              }
+          }
+
+          setAnalysisStage("Reconstructing Narrative...");
+
           // Dynamically fetch linguistic context to perform phonetic translation on-the-fly!
           let linguisticContext = "";
           if (user) {
@@ -69,7 +97,7 @@ export default function SourceViewerPage() {
           const res = await fetch("/api/parse-transcript", {
               method: "POST",
               headers: {"Content-Type": "application/json"},
-              body: JSON.stringify({ textContent: targetSource.textContent, linguisticContext, forceFormat })
+              body: JSON.stringify({ textContent: targetSource.textContent, linguisticContext, forceFormat, documentIntelligence: currentIntelligence })
           });
 
           if (!res.ok) {
@@ -225,7 +253,7 @@ export default function SourceViewerPage() {
                   <h1 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
                       {source?.fileName || "Unknown Document"}
                   </h1>
-                  <span className="text-[10px] uppercase tracking-wide text-zinc-500 font-bold">{isStreaming ? "AI Reconstructing Script..." : "Interactive Script"}</span>
+                  <span className="text-[10px] uppercase tracking-wide text-zinc-500 font-bold">{isStreaming ? (analysisStage || "AI Reconstructing Script...") : "Interactive Script"}</span>
               </div>
           </div>
           <div className="flex items-center gap-2">
@@ -264,8 +292,8 @@ export default function SourceViewerPage() {
             ) : (
                 <div className="flex flex-col items-center justify-center p-20 text-center opacity-50 mt-10">
                    <Loader2 size={32} className="animate-spin text-zinc-400 mb-6"/>
-                   <span className="font-bold text-zinc-600 text-lg mb-2">Cognitive Reconstruction Initialized</span>
-                   <span className="text-sm text-zinc-500 max-w-md mx-auto">Classifying document constraints and formatting extraction pipeline...</span>
+                   <span className="font-bold text-zinc-600 text-lg mb-2">{analysisStage || "Cognitive Reconstruction Initialized"}</span>
+                   <span className="text-sm text-zinc-500 max-w-md mx-auto">{analysisStage === "Analyzing Speakers & Context..." ? "Identifying speakers, context, and structural document type..." : "Classifying document constraints and formatting extraction pipeline..."}</span>
                 </div>
             )}
          </div>

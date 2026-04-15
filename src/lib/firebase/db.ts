@@ -1,6 +1,6 @@
-import { getFirestore, collection, addDoc, serverTimestamp, query, where, getDocs, doc, deleteDoc, orderBy, getDoc, setDoc, updateDoc, increment } from "firebase/firestore";
+import { getFirestore, collection, addDoc, serverTimestamp, query, where, getDocs, doc, deleteDoc, orderBy, getDoc, setDoc, updateDoc, increment, writeBatch } from "firebase/firestore";
 import { app } from "./client";
-import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview } from "@/lib/rag";
+import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview, type DocumentIntelligence } from "@/lib/rag";
 
 export const db = getFirestore(app);
 
@@ -86,6 +86,7 @@ export interface NotebookSource {
   fileSize: number;
   textContent: string; // The extracted AI-readable string
   parsedContent?: string; // The AI-structured conversational script format
+  intelligence?: DocumentIntelligence; // Step 0 document analysis results
   uploadedAt: any;
   isSynced?: boolean; // Whether the RAG loop has already processed this source into HighFidelity stories
 }
@@ -195,6 +196,15 @@ export async function updateNotebookSourceParsedContent(documentId: string, pars
   }
 }
 
+export async function updateNotebookSourceIntelligence(documentId: string, intelligence: DocumentIntelligence) {
+  try {
+    const docRef = doc(db, "user_sources", documentId);
+    await updateDoc(docRef, { intelligence });
+  } catch (error) {
+    console.error("Failed to update document intelligence:", error);
+  }
+}
+
 // ---- USER PROFILES SYSTEM ----
 
 export interface UserProfile {
@@ -212,6 +222,11 @@ export interface UserProfile {
   secondaryLanguages?: string;
   userOverrides?: string[];
   trustScore?: number;
+  privacyLevel?: "private" | "family" | "public_anonymized" | "public_transparent";
+  publicSlug?: string;
+  familyAccessEmails?: string[];
+  isAnonymizedBuildReady?: boolean;
+  pseudonymMap?: Record<string, string>;
   updatedAt?: any;
 }
 
@@ -236,6 +251,32 @@ export async function updateUserProfile(userId: string, data: Partial<UserProfil
   } catch (error) {
     console.error("Failed to update user profile:", error);
     return false;
+  }
+}
+
+export async function checkSlugAvailability(slug: string, excludeUserId?: string): Promise<boolean> {
+  if (!slug) return false;
+  try {
+    const q = query(collection(db, "user_profiles"), where("publicSlug", "==", slug));
+    const snap = await getDocs(q);
+    if (snap.empty) return true;
+    if (excludeUserId && snap.docs.length === 1 && snap.docs[0].id === excludeUserId) return true;
+    return false;
+  } catch (err) {
+    console.error("Failed to check slug:", err);
+    return false;
+  }
+}
+
+export async function fetchProfileBySlug(slug: string): Promise<{id: string, profile: UserProfile} | null> {
+  try {
+    const q = query(collection(db, "user_profiles"), where("publicSlug", "==", slug));
+    const snap = await getDocs(q);
+    if (snap.empty) return null;
+    return { id: snap.docs[0].id, profile: snap.docs[0].data() as UserProfile };
+  } catch (err) {
+    console.error("Failed to fetch by slug:", err);
+    return null;
   }
 }
 
@@ -294,6 +335,7 @@ export interface Contact {
   phone?: string; // Imported phone number
   linkedAccountId: string;
   source?: 'story' | 'import' | 'merged'; // Data provenance
+  archiveAccessTier?: 'none' | 'family'; // For public archives
   updatedAt?: any;
 }
 
@@ -334,6 +376,58 @@ export async function deleteContact(contactId: string): Promise<boolean> {
     return true;
   } catch (err) {
     console.error("Failed to delete contact:", err);
+    return false;
+  }
+}
+
+export async function deleteAllUserContacts(userId: string): Promise<boolean> {
+  try {
+    const q = query(collection(db, "legacy_contacts"), where("userId", "==", userId));
+    const querySnapshot = await getDocs(q);
+    
+    if (querySnapshot.empty) return true;
+
+    const batch = writeBatch(db);
+    querySnapshot.forEach((document) => {
+      batch.delete(document.ref);
+    });
+    
+    await batch.commit();
+    return true;
+  } catch (err) {
+    console.error("Failed to batch delete contacts:", err);
+    return false;
+  }
+}
+
+export async function updateContactAccessTier(userId: string, contactId: string, email: string, tier: 'none' | 'family'): Promise<boolean> {
+  if (!email) return false;
+  
+  try {
+    // 1. Update Contact
+    const contactRef = doc(db, "legacy_contacts", contactId);
+    await setDoc(contactRef, { archiveAccessTier: tier, updatedAt: serverTimestamp() }, { merge: true });
+
+    // 2. Fetch current UserProfile
+    const profileRef = doc(db, "user_profiles", userId);
+    const profileSnap = await getDoc(profileRef);
+    if (!profileSnap.exists()) return false;
+    
+    const profileData = profileSnap.data() as UserProfile;
+    let currentEmails = profileData.familyAccessEmails || [];
+    
+    // Clean up current array
+    const cleanedEmail = email.toLowerCase().trim();
+    currentEmails = currentEmails.filter(e => e.toLowerCase().trim() !== cleanedEmail);
+
+    if (tier === 'family') {
+       currentEmails.push(cleanedEmail);
+    }
+    
+    await setDoc(profileRef, { familyAccessEmails: currentEmails }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error("Failed to update contact access tier:", error);
     return false;
   }
 }

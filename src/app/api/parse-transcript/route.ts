@@ -5,16 +5,31 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
-    const { textContent, linguisticContext, forceFormat } = await req.json();
+    const { textContent, linguisticContext, forceFormat, documentIntelligence } = await req.json();
 
     if (!textContent) {
        return NextResponse.json({ error: "Missing required textContent." }, { status: 400 });
+    }
+
+    // Build speaker intelligence context if available
+    let intelligenceContext = "";
+    if (documentIntelligence) {
+      const docType = documentIntelligence.documentType?.replace(/_/g, ' ') || "unknown";
+      intelligenceContext += `\n      DOCUMENT INTELLIGENCE (Pre-Analyzed):\n      - Document Type: ${docType}\n      - Main Subject: ${documentIntelligence.mainSubject?.name || "Unknown"} — ${documentIntelligence.mainSubject?.summary || ""}\n      - Power Asymmetry: ${documentIntelligence.powerAsymmetry ? "Yes (one person drives the interview)" : "No (balanced exchange)"}\n`;
+      if (documentIntelligence.speakerProfiles?.length > 0) {
+        intelligenceContext += `      - Identified Speakers:\n`;
+        for (const sp of documentIntelligence.speakerProfiles) {
+          intelligenceContext += `        * "${sp.name || sp.label}" — Role: ${sp.role}. Tone: ${sp.toneDescription}. Topics: ${sp.keyTopics?.join(', ') || 'N/A'}.\n`;
+        }
+        intelligenceContext += `      USE THESE SPEAKER PROFILES to correctly attribute dialogue. When a speaker is identified, use their name or role (e.g., "${documentIntelligence.speakerProfiles[0]?.name || 'Interviewer'}:") instead of generic labels.\n`;
+      }
     }
 
     let prompt = `
       You are an expert transcriber and biographer for Legacy Nexus.
       The following text is a continuous, unstructured document (could be an interview transcript, or a prose report).
       Your strictly enforced job is to completely reconstruct it into readability.
+      ${intelligenceContext}
       `;
 
     if (forceFormat === 'DIALOGUE') {

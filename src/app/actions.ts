@@ -1,6 +1,6 @@
 "use server";
 
-import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive, extractDemographicsFromTranscript, generateSandersonAdaptation, generatePodcastTranscript } from "@/lib/rag";
+import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive, extractDemographicsFromTranscript, generateSandersonAdaptation, generatePodcastTranscript, generateAnonymizedStories, generateUniversalCastMapping } from "@/lib/rag";
 import { getPineconeIndex } from "@/lib/pinecone/client";
 // @ts-ignore - Bypass Turbopack static ESM export resolution
 import pdfParseModule from "pdf-parse/lib/pdf-parse.js";
@@ -249,4 +249,62 @@ export async function generateSandersonChapterAction(story: HighFidelityStory, e
 
 export async function deletePineconeSourceAction(userId: string, sourceId: string): Promise<boolean> {
   return true;
+}
+
+export async function generateAnonymizedStoriesAction(stories: HighFidelityStory[], pseudoMap?: Record<string, string>): Promise<HighFidelityStory[]> {
+  try {
+    return await generateAnonymizedStories(stories, pseudoMap);
+  } catch (error) {
+    console.error("Failed to generate anonymized stories:", error);
+    return stories;
+  }
+}
+
+export async function generateUniversalCastMappingAction(stories: HighFidelityStory[], existingMap?: Record<string, string>): Promise<Record<string, string>> {
+  try {
+    return await generateUniversalCastMapping(stories, existingMap);
+  } catch (error) {
+    console.error("Failed to generate Universal Cast mapping:", error);
+    return existingMap || {};
+  }
+}
+
+export async function generateElevenLabsAudioAction(text: string, voiceId: string): Promise<string | null> {
+  if (!text || !voiceId) return null;
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey) {
+    console.error("ElevenLabs API Key not found.");
+    return null;
+  }
+  
+  try {
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: "POST",
+      headers: {
+        "Accept": "audio/mpeg",
+        "Content-Type": "application/json",
+        "xi-api-key": apiKey
+      },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_turbo_v2_5",
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75
+        }
+      })
+    });
+    
+    if (!response.ok) {
+      console.error("ElevenLabs TTS failed:", await response.text());
+      return null;
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    return buffer.toString('base64');
+  } catch (error) {
+    console.error("ElevenLabs API Request Error:", error);
+    return null;
+  }
 }

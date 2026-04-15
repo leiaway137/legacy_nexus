@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, User, Mail, ShieldCheck, Phone, Edit3, Trash2, Search, Upload, RefreshCw, Loader2, Quote, Sparkles, Star } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { useBackgroundJobs } from "@/components/BackgroundJobProvider";
-import { fetchContacts, saveContact, deleteContact, fetchUserSources, Contact, NotebookSource } from "@/lib/firebase/db";
+import { fetchContacts, saveContact, deleteContact, fetchUserSources, Contact, NotebookSource, updateContactAccessTier } from "@/lib/firebase/db";
 import { parseCSV, parseVCF, correlateContacts } from "@/lib/contacts";
 import { fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/firebase/db";
 import { recompileStoriesWithContactsAction } from "@/app/actions";
@@ -195,6 +195,13 @@ export default function ContactsPage() {
       delete merged.rawAliasesText;
       
       await saveContact(user.uid, merged);
+
+      if (editingData.archiveAccessTier !== undefined && editingData.archiveAccessTier !== activeContact.archiveAccessTier) {
+          if (merged.email) {
+             await updateContactAccessTier(user.uid, activeContact.id, merged.email, merged.archiveAccessTier || 'none');
+          }
+      }
+
       setContacts(prev => prev.map(c => c.id === merged.id ? merged : c));
       setEditingData(null);
   };
@@ -526,6 +533,23 @@ export default function ContactsPage() {
                                       </optgroup>
                                    </select>
                                 ) : <span className="font-medium text-zinc-800 dark:text-zinc-200">{activeContact.relationship || 'Unspecified'}</span>}
+                             </div>
+                             <div className="flex flex-col gap-1.5 col-span-2">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Legacy Archive Access</span>
+                                {editingData ? (
+                                   <select value={editingData.archiveAccessTier ?? activeContact.archiveAccessTier ?? 'none'} onChange={e => setEditingData({...editingData, archiveAccessTier: e.target.value as any})} className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded font-medium text-sm">
+                                      <option value="none">Standard Access (Fallback to Global Settings)</option>
+                                      <option value="family">Trusted Reader / Family Tier</option>
+                                   </select>
+                                ) : (
+                                   <div className="flex items-center gap-2">
+                                      <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                                         {activeContact.archiveAccessTier === 'family' ? 'Trusted Reader / Family Tier' : 'Standard Access'}
+                                      </span>
+                                      {activeContact.archiveAccessTier === 'family' && <ShieldCheck size={14} className="text-emerald-500" />}
+                                   </div>
+                                )}
+                                <p className="text-xs text-zinc-500 mt-1">If approved as a Trusted Reader, this person's email will bypass public anonymization filters and will be authorized to view Family-Only archives.</p>
                              </div>
                           </div>
                           

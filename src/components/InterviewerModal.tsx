@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mic, MicOff, Image as ImageIcon, X, Loader2, Save, Download, Play, Square } from "lucide-react";
-import { conductActiveInterviewAction, extractDemographicsAction } from "@/app/actions";
+import { conductActiveInterviewAction, extractDemographicsAction, generateElevenLabsAudioAction } from "@/app/actions";
+import { ELEVENLABS_VOICES } from "@/lib/elevenlabs/voices";
 import { fetchPendingBankQuestions, markQuestionsAnswered, fetchUserProfile, incrementUserTrustScore, updateUserProfile } from "@/lib/firebase/db";
 
 interface InterviewerModalProps {
@@ -22,6 +23,8 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
   const [hasStarted, setHasStarted] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [selectedPersona, setSelectedPersona] = useState<string>("Warm & Reflective");
+  const [selectedVoice, setSelectedVoice] = useState<string>(ELEVENLABS_VOICES[0].id);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const [pendingQuestions, setPendingQuestions] = useState<{id: string, text: string}[]>([]);
   const [trustScore, setTrustScore] = useState<number>(0);
@@ -94,27 +97,30 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
 
       // Robustly handle abrupt stops (like 'no-speech' timeouts from the browser)
       recognitionRef.current.onend = () => {
-        // If we still think we are recording, and we are not currently processing the AI's turn,
-        // it means the browser killed the speech recognition prematurely. Restart it.
-        if (isRecording && !isProcessingTurnRef.current) {
-          try {
-            recognitionRef.current.start();
-          } catch (e) {
-            // Context already started, ignore gracefully
-          }
+        // Only auto-restart if we are actively recording and AI isn't speaking
+        if (isRecording && !isAiSpeakingRef.current && !isProcessingTurnRef.current) {
+           try { recognitionRef.current.start(); } catch(e) {}
         }
       };
+
+      // Cleanup
+      return () => {
+        if (recognitionRef.current) {
+          recognitionRef.current.stop();
+        }
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.src = "";
+        }
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+          mediaRecorderRef.current.stop();
+          mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+        }
+      };
+    } else {
+      setMicError("Browser does not support Speech Recognition. Please use Chrome.");
     }
-    
-    return () => {
-      if (recognitionRef.current) recognitionRef.current.stop();
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-        mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-      }
-      window.speechSynthesis.cancel();
-    };
   }, []);
 
   const handleUserSilenceDetected = () => {
@@ -224,7 +230,12 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
         triggerAiTurn(newHistory, currentTurnIdRef.current);
       }
     } else {
-      window.speechSynthesis.cancel(); // stop AI if talking
+      if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+      }
+      setIsAiSpeaking(false);
+      isAiSpeakingRef.current = false;
       setLiveTranscript("");
       recognitionRef.current.start();
       setIsRecording(true);
@@ -286,37 +297,56 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
     speakUtterance(aiResponseText);
   };
 
-  const speakUtterance = (textToSpeak: string) => {
-    const utterance = new SpeechSynthesisUtterance(textToSpeak);
-    utterance.rate = 0.95; // Slightly slower
-    utterance.pitch = 1.0;
-    
-    const voices = window.speechSynthesis.getVoices();
-    const preferredVoice = voices.find(v => v.lang.includes("en") && (v.name.includes("Google") || v.name.includes("Premium") || v.name.includes("Natural")));
-    if (preferredVoice) utterance.voice = preferredVoice;
-
+  const speakUtterance = async (textToSpeak: string) => {
     setIsAiSpeaking(true);
-
-    utterance.onend = () => {
-      setIsAiSpeaking(false);
-      isAiSpeakingRef.current = false;
-      // Auto-hot-mic for hands-free Gemini Live interaction loop
-      // Provide a slight delay to avoid capturing the tail end of the AI's own voice echo if using speakers
-      setTimeout(() => {
-        if (recognitionRef.current) {
-          try {
-            setLiveTranscript("");
-            transcriptBufferRef.current = "";
-            recognitionRef.current.start();
-            setIsRecording(true);
-          } catch(e) {
-            console.error("Failed to restart mic", e);
-          }
-        }
-      }, 500);
-    };
+    isAiSpeakingRef.current = true;
     
-    window.speechSynthesis.speak(utterance);
+    // Attempt to fetch ultra-realistic ElevenLabs TTS
+    try {
+        const base64Audio = await generateElevenLabsAudioAction(textToSpeak, selectedVoice);
+        
+        if (base64Audio) {
+            const dataUrl = `data:audio/mp3;base64,${base64Audio}`;
+            
+            if (audioRef.current) {
+                audioRef.current.pause();
+            }
+            
+            const audio = new Audio(dataUrl);
+            audioRef.current = audio;
+            
+            audio.onended = () => {
+                setIsAiSpeaking(false);
+                isAiSpeakingRef.current = false;
+                
+                // Keep the delay to let acoustic echo fade out before enabling mic
+                setTimeout(() => {
+                  if (recognitionRef.current && isRecording) {
+                    try {
+                      setLiveTranscript("");
+                      transcriptBufferRef.current = "";
+                      recognitionRef.current.start();
+                    } catch(e) {
+                      console.error("Failed to restart mic", e);
+                    }
+                  }
+                }, 500);
+            };
+            
+            audio.play().catch(e => {
+                console.error("Audio playback prevented by browser:", e);
+                setIsAiSpeaking(false);
+                isAiSpeakingRef.current = false;
+            });
+            
+            return;
+        }
+    } catch (e) {
+        console.error("ElevenLabs fallback failed:", e);
+    }
+    
+    setIsAiSpeaking(false);
+    isAiSpeakingRef.current = false;
   };
 
 
@@ -418,6 +448,19 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
                   <option value="Warm & Reflective">Warm & Reflective (Default)</option>
                   <option value="Analytical & Probing">Analytical & Probing</option>
                   <option value="Playful & Creative">Playful & Creative</option>
+                </select>
+              </div>
+
+              <div className="w-full max-w-sm mt-4">
+                <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-2">Interviewer Voice</label>
+                <select
+                  value={selectedVoice}
+                  onChange={(e) => setSelectedVoice(e.target.value)}
+                  className="w-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-purple-500 transition-colors cursor-pointer text-zinc-900 dark:text-zinc-100"
+                >
+                  {ELEVENLABS_VOICES.map(voice => (
+                      <option key={voice.id} value={voice.id}>{voice.name}</option>
+                  ))}
                 </select>
               </div>
               

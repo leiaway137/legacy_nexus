@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, embedStoriesToPineconeAction, deletePineconeSourceAction, deleteAllPineconeResourcesAction, recompileStoriesWithContactsAction, reduceDashboardOverviewAction } from "./actions";
-import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, saveQuestionBankItem, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/firebase/db";
+import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, saveQuestionBankItem, deleteAllUserContacts, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/firebase/db";
 import { useBackgroundJobs } from "@/components/BackgroundJobProvider";
 import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview } from "@/lib/rag";
 import { motion, AnimatePresence } from "framer-motion";
@@ -96,7 +96,13 @@ export default function Home() {
   const [overrideInput, setOverrideInput] = useState("");
   const [isSavingOverride, setIsSavingOverride] = useState(false);
 
-  const handleSelection = () => {
+  const handleSelection = (e?: Event) => {
+     if (e && e.target instanceof Element) {
+        if (e.target.closest('#discrepancy-modal')) {
+           return;
+        }
+     }
+
      const selection = window.getSelection();
      if (selection && selection.toString().trim() !== "") {
         const text = selection.toString().trim();
@@ -118,8 +124,12 @@ export default function Home() {
   };
 
   useEffect(() => {
-     document.addEventListener("selectionchange", handleSelection);
-     return () => document.removeEventListener("selectionchange", handleSelection);
+     document.addEventListener("mouseup", handleSelection);
+     document.addEventListener("keyup", handleSelection);
+     return () => {
+        document.removeEventListener("mouseup", handleSelection);
+        document.removeEventListener("keyup", handleSelection);
+     };
   }, []);
 
   const submitOverride = async () => {
@@ -453,6 +463,9 @@ export default function Home() {
           await embedStoriesToPineconeAction(user.uid, "nexus-vault", recompiled);
         } else {
           await saveHighFidelityStories(user.uid, []);
+          await deleteAllUserContacts(user.uid);
+          await saveDashboardState(user.uid, null);
+          await saveChatHistory(user.uid, []);
           await deleteAllPineconeResourcesAction(user.uid);
         }
       } catch (err) {
@@ -1056,6 +1069,7 @@ export default function Home() {
       <AnimatePresence>
         {selectionContext && (
           <motion.div 
+             id="discrepancy-modal"
              initial={{ opacity: 0, y: 10, scale: 0.95 }}
              animate={{ opacity: 1, y: 0, scale: 1 }}
              exit={{ opacity: 0, y: 5, scale: 0.95 }}
