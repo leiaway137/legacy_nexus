@@ -449,10 +449,14 @@ export async function fetchDashboardState(userId: string): Promise<PersistentDas
   return null;
 }
 
-export async function saveDashboardState(userId: string, state: PersistentDashboardState) {
+export async function saveDashboardState(userId: string, state: PersistentDashboardState | null) {
   try {
     const docRef = doc(db, "legacy_dashboard_active", userId);
-    await setDoc(docRef, { ...state, updatedAt: Date.now() });
+    if (state === null) {
+       await deleteDoc(docRef);
+    } else {
+       await setDoc(docRef, { ...state, updatedAt: Date.now() });
+    }
   } catch (err) {
     console.error("Failed to save dashboard state:", err);
   }

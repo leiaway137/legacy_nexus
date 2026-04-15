@@ -981,6 +981,7 @@ export interface DashboardOverview {
   synopsis: string;
   wisdom: WisdomSummary[];
   questions: string[];
+  legacyIdentityLabel?: string;
 }
 
 export async function reduceDashboardOverview(currentOverview: DashboardOverview | null, newTranscript: string, mainSubjectName?: string): Promise<DashboardOverview> {

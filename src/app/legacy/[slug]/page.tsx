@@ -67,8 +67,8 @@ export default function PublicLegacyViewer({ params }: { params: Promise<{ slug:
          setStories(redactedStories);
          
          // Redact dashboard names if necessary, or just hide specific stats
-         if (fetchedDash) {
-            fetchedDash.recentSummary = "(Anonymized Summary) " + fetchedDash.recentSummary;
+         if (fetchedDash && fetchedDash.synopsis) {
+            fetchedDash.synopsis = "(Anonymized Summary) " + fetchedDash.synopsis;
          }
       } else {
          setStories(fetchedStories);
