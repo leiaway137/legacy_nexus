@@ -27,8 +27,8 @@ export async function POST(req: Request) {
     });
 
     // 3. Assemble the perfectly scoped context string with universal perspective binding
-    const dynamicContext = queryResponse.matches
-       .map(match => {
+    const dynamicContext = (queryResponse.matches || [])
+       .map((match: any) => {
           const perspectiveText = match.metadata?.perspective ? `[Source Perspective: ${match.metadata.perspective}]\n` : "";
           const contentText = match.metadata?.text || "";
           return contentText ? `${perspectiveText}${contentText}` : "";
