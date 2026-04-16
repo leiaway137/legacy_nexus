@@ -98,7 +98,7 @@ export async function embedStoriesToPineconeAction(userId: string, sourceId: str
         
         for (let j = 0; j < embeddedBatches.length; j++) {
             const embeddingData = embeddedBatches[j];
-            if (embeddingData && embeddingData.length === 3072) {
+            if (embeddingData && embeddingData.length > 0) {
                vectors.push({
                   id: `story-${batchStories[j].id}`,
                   values: embeddingData,

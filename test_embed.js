@@ -1,17 +1,10 @@
-import { GoogleGenAI } from '@google/genai';
-
+const { GoogleGenAI } = require("@google/genai");
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-async function testEmbed() {
-  try {
-    const response = await ai.models.embedContent({
-      model: "gemini-embedding-001",
-      contents: "Hello world"
-    });
-    console.log("SUCCESS length:", response.embeddings?.[0]?.values?.length);
-  } catch (err) {
-    console.error("FAIL!", err);
-  }
+async function run() {
+  const response = await ai.models.embedContent({
+    model: "gemini-embedding-2-preview",
+    contents: "Hello world"
+  });
+  console.log("Dims:", response.embeddings[0].values.length);
 }
-
-testEmbed();
+run();
