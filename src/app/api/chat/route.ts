@@ -33,7 +33,7 @@ export async function POST(req: Request) {
           const contentText = match.metadata?.text || "";
           return contentText ? `${perspectiveText}${contentText}` : "";
        })
-       .filter(text => text.length > 0)
+       .filter((text: any) => text.length > 0)
        .join("\n\n---\n\n");
 
     const stream = await chatWithLegacyStream(dynamicContext, question, history || [], linguisticContext, relationalContext, systemOverrides);
