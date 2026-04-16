@@ -1,4 +1,5 @@
 "use server";
+export const maxDuration = 60; // Expand Vercel max idle execution time up to 60s
 
 import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive, extractDemographicsFromTranscript, generateSandersonAdaptation, generatePodcastTranscript, generateAnonymizedStories, generateUniversalCastMapping } from "@/lib/rag";
 import { getPineconeIndex } from "@/lib/pinecone/client";

@@ -3,6 +3,7 @@ import { chatWithLegacyStream, generateTextEmbedding } from '@/lib/rag';
 import { getPineconeIndex } from '@/lib/pinecone/client';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60; // Extend Vercel Hobby Timeout from 10s default to 60s max
 export async function POST(req: Request) {
   try {
     const { userId, question, history, linguisticContext, relationalContext, systemOverrides } = await req.json();

@@ -345,8 +345,23 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
         console.error("ElevenLabs fallback failed:", e);
     }
     
+    // If TTS completely failed or didn't return audio, gracefully restart the microphone anyway
+    // so the user can answer the text prompt they just read on screen
     setIsAiSpeaking(false);
     isAiSpeakingRef.current = false;
+    
+    setTimeout(() => {
+      if (recognitionRef.current && !isRecording) {
+        try {
+          setLiveTranscript("");
+          transcriptBufferRef.current = "";
+          setIsRecording(true);
+          recognitionRef.current.start();
+        } catch(e) {
+          console.error("Failed to fallback restart mic", e);
+        }
+      }
+    }, 1000); // 1-second delay so they can at least read the text before mic picks up their breathing
   };
 
 
