@@ -9,7 +9,7 @@ import { LoginModule } from "@/components/LoginModule";
 import { InterviewerModal } from "@/components/InterviewerModal";
 import { HighFidelityStory } from "@/lib/rag";
 import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights, saveChatHistory, fetchContacts, saveContact, type Contact } from "@/lib/firebase/db";
-import { extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, generateLegacyIdentityAction, generateDriftInsightAction, generateLegacyDeepDiveAction } from "@/app/actions";
+import { extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, generateLegacyIdentityAction, generateDriftInsightAction, generateLegacyDeepDiveAction, deleteAllPineconeResourcesAction, embedStoriesToPineconeAction } from "@/app/actions";
 import { computeCentroidMath, analyzeCrossMetricPattern, RECOGNIZED_ERAS } from "@/lib/math";
 import { useOnboarding } from "@/components/OnboardingProvider";
 import { InfoTooltip } from "@/components/InfoTooltip";
@@ -416,8 +416,17 @@ export default function StoriesPage() {
 
         setProgressPercent(100);
         setEta("Almost done!");
-        setMappingProgress("Finalizing chronological sorting and preserving to Firebase...");
+        setMappingProgress("Finalizing chronological sorting and bridging to Pinecone Vector DB...");
         await saveHighFidelityStories(user.uid, currentCache);
+        
+        // Sync to Pinecone DB to ensure Chatbot and RAG features use the up-to-date Deep Scanned stories
+        try {
+           await deleteAllPineconeResourcesAction(user.uid);
+           await embedStoriesToPineconeAction(user.uid, "nexus-vault", currentCache);
+        } catch (pineError) {
+           console.error("Failed to sync new stories to Pinecone: ", pineError);
+        }
+        
         setStories(currentCache);
       } else {
         alert("The AI returned an empty storyline. Ensure your journals contain specific narrative events or reduce the complexity of the files.");
