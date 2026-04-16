@@ -1,28 +1,23 @@
 import { NextResponse } from 'next/server';
-import { getPineconeIndex } from '@/lib/pinecone/client';
+import { embedStoriesToPineconeAction } from '@/app/actions';
 
 export async function GET() {
   try {
-    const index = getPineconeIndex();
-    const ns = index.namespace("test-user");
-
-    const record = {
-        id: "test-vector-1",
-        values: new Array(768).fill(0.1),
-        metadata: { text: "pure manual test" }
+    const dummyStory = {
+       id: "dummy-1",
+       era: "Twenties",
+       title: "Dummy Title",
+       synopsis: "Dummy synopsis",
+       detailedNarrative: "Dummy narrative here to satisfy extraction.",
+       psychometrics: [],
+       peopleMentioned: [],
+       rubric: { context: true, conflict: false, resolution: false },
+       extraction: { present: true, depthLevel: 1, primaryCategory: "None", secondaryCategory: "None", insightSummary: "Dummy insight", legacyLesson: "Dummy lesson", rawQuote: "quote" }
     };
 
-    try {
-        await ns.upsert( [record] as any );
-        return NextResponse.json({ success: true, method: "array" });
-    } catch(e1:any) {
-        try {
-            await ns.upsert({ records: [record] } as any);
-            return NextResponse.json({ success: true, method: "object-records" });
-        } catch(e2:any) {
-            return NextResponse.json({ success: false, e1: e1.message, e2: e2.message });
-        }
-    }
+    const success = await embedStoriesToPineconeAction("test-user-id", "dummy-source-id", [dummyStory]);
+
+    return NextResponse.json({ success });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message });
   }

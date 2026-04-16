@@ -18,16 +18,31 @@ export async function generateTextEmbedding(text: string): Promise<number[]> {
 
 export async function generateBatchTextMappings(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
-  try {
-    const response = await ai.models.embedContent({
-      model: "gemini-embedding-2-preview",
-      contents: texts,
-    });
-    return response.embeddings?.map(e => e.values || []) || [];
-  } catch (error) {
-    console.error("Failed to generate batch embedding:", error);
-    return texts.map(() => []);
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      const response = await ai.models.embedContent({
+        model: "gemini-embedding-2-preview",
+        contents: texts,
+      });
+      return response.embeddings?.map(e => e.values || []) || [];
+    } catch (error: any) {
+      const errStr = (error?.message || error?.toString() || '').toLowerCase();
+      if (errStr.includes('503') || errStr.includes('429') || errStr.includes('unavailable') || errStr.includes('high demand')) {
+        retries--;
+        if (retries === 0) {
+          console.error("Failed to generate batch embedding after exhausted retries:", error);
+          break;
+        }
+        console.warn(`[Pinecone Embedding] Gemini busy (503). Retrying in 6 seconds... (${retries} attempts left)`);
+        await new Promise(r => setTimeout(r, 6000));
+      } else {
+        console.error("Fatal error generating batch embedding:", error);
+        break; // Fatal error, don't retry
+      }
+    }
   }
+  return texts.map(() => []);
 }
 
 export async function identifyDocumentPerspective(documentText: string): Promise<string> {
