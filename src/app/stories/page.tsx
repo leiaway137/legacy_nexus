@@ -330,13 +330,32 @@ export default function StoriesPage() {
            const chunkText = text.substring(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
            const sourceContext = `[Source: ${s.fileName}]\n${chunkText}`;
            
-           try {
-              const mappedStories = await extractHighFidelityStoriesAction(sourceContext, linguisticContext, undefined, identityContext);
-              if (mappedStories && mappedStories.length > 0) {
-                 globalMappedStories.push(...mappedStories);
-              }
-           } catch (mapErr: any) {
-              console.error("Map-Reduce failed on specific chunk:", s.id, mapErr);
+           let mappedStories: HighFidelityStory[] = [];
+           let retries = 3;
+           while (retries > 0) {
+               try {
+                  const result = await extractHighFidelityStoriesAction(sourceContext, linguisticContext, undefined, identityContext);
+                  if (result) mappedStories = result;
+                  break; // Success! Escape retry loop
+               } catch (mapErr: any) {
+                  const errorStr = (mapErr?.message || mapErr?.toString() || '').toLowerCase();
+                  if (errorStr.includes("503") || errorStr.includes("429") || errorStr.includes("unavailable") || errorStr.includes("high demand") || errorStr.includes("rate") || errorStr.includes("quota")) {
+                      retries--;
+                      if (retries === 0) {
+                          console.error("Map-Reduce failed on chunk after exhausted retries:", s.id, mapErr);
+                          break;
+                      }
+                      setMappingProgress(`Gemini servers busy... Waiting 6 seconds before retrying chunk (Attempt ${4 - retries}/3)...`);
+                      await new Promise(r => setTimeout(r, 6000));
+                  } else {
+                      console.error("Map-Reduce suffered a fatal syntax error on chunk:", s.id, mapErr);
+                      break; // Fatal structural error, do not eternally retry
+                  }
+               }
+           }
+           
+           if (mappedStories && mappedStories.length > 0) {
+              globalMappedStories.push(...mappedStories);
            }
            chunksProcessed++;
         }
