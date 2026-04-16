@@ -116,9 +116,10 @@ export async function embedStoriesToPineconeAction(userId: string, sourceId: str
     // Upsert vectors in batches to Pinecone using the userId as a security namespace!
     if (vectors.length > 0) {
        const batchSize = 100;
+       const ns = index.namespace(userId);
        for (let i = 0; i < vectors.length; i += batchSize) {
           const batch = vectors.slice(i, i + batchSize);
-          await index.upsert({ records: batch, namespace: userId });
+          await ns.upsert(batch);
        }
     }
     

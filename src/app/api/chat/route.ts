@@ -19,10 +19,9 @@ export async function POST(req: Request) {
 
     // 2. Query Pinecone for the Top 10 Context Chunks natively at the Edge!
     const index = getPineconeIndex();
-    const queryResponse = await index.query({
+    const queryResponse = await index.namespace(userId).query({
         vector: questionVector,
         topK: 40,
-        namespace: userId,
         includeMetadata: true
     });
 
