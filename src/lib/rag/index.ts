@@ -667,7 +667,7 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
     11. 'gapPrompt': If this story lacks conflict, lacks a clear resolution, lacks sufficient contextual details, OR lacks a mature extraction ('present' is false), it is considered incomplete. If incomplete, generate a highly customized, unique question about this SPECIFIC story that challenges the narrator to fill in those missing elements to make a complete story. Do NOT use generic/repetitive language formatting. Directly reference the specific names and concrete events of this story to formulate a probing question seeking the missing context, conflict, resolution, or overarching moral lesson.
     ${relationalContext ? `CRITICAL RELATIONAL CONTEXT: Normalize and refer to individuals using the following Identity Map when generating synopses and labels: ${relationalContext}` : ''}
 
-    Extract 1 to 3 highly granular, profoundly distinct thematic events from this specific chunk of text. Do NOT lazily merge multiple life events into a single generalized card. Demand granularity. Do not hallucinate events that are not explicitly in the text.
+    Extract ALL highly granular, profoundly distinct thematic events from this specific chunk of text. Do NOT lazily merge multiple life events into a single generalized card. Demand granularity. You should extract anywhere from 1 to 10 events depending on the density of the text. Do not hallucinate events that are not explicitly in the text.
     Raw Context:
     "${transcriptContext}"
   `;
@@ -749,7 +749,7 @@ export async function extractHighFidelityStories(transcriptContext: string, cult
               },
               gapPrompt: { type: Type.STRING, nullable: true }
             },
-            required: ["id", "era", "title", "synopsis", "psychometrics", "rubric", "peopleMentioned"]
+            required: ["id", "era", "title", "synopsis", "detailedNarrative", "psychometrics", "rubric", "extraction", "impact_metadata", "linguisticCorrections", "peopleMentioned", "gapPrompt"]
           }
         }
       }
@@ -788,9 +788,9 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
     
     Your task:
     1. Read the newly extracted raw stories.
-    2. Determine if the events described in the raw stories fall into the context of any EXISTING stories.
-       - If YES: MERGE them. UPDATE the existing story. You MUST rewrite the 'detailedNarrative' to cleanly and EXHAUSTIVELY integrate all new robust facts and dialogue from the new story into the master narrative. Ensure the resulting 'detailedNarrative' is a massive, multi-paragraph memoir (3+ paragraphs). You can rewrite the 'synopsis' if the core hook changes, drastically update the 'psychometrics' based on the newly merged context, and update the 'rubric' booleans. Remove the 'gapPrompt' if the rubric and extraction becomes fully complete. If any elements are missing (context, conflict, resolution, or extraction), completely REWRITE the 'gapPrompt' to explicitly reference the newly synthesized narrative details and ask a highly specific, penetrating question to prompt the narrator for the missing elements to complete the story.
-       - If NO: CREATE entirely new story objects and APPEND them to the array. Do not lazily summarize them; preserve their granularity. If the story lacks context, conflict, resolution, or extraction, generate a highly specific, context-aware 'gapPrompt' referencing literal story events seeking the missing elements.
+    2. Determine if the events described in the raw stories are the EXACT SAME EVENT or a DIRECT CONTINUATION of any EXISTING stories in the master timeline.
+       - If YES (they are the exact same event): MERGE them. UPDATE the existing story. You MUST rewrite the 'detailedNarrative' to cleanly and EXHAUSTIVELY integrate all new robust facts and dialogue from the new story into the master narrative. Ensure the resulting 'detailedNarrative' is a massive, multi-paragraph memoir (3+ paragraphs). You can rewrite the 'synopsis' if the core hook changes, drastically update the 'psychometrics' based on the newly merged context, and update the 'rubric' booleans. Remove the 'gapPrompt' if the rubric and extraction becomes fully complete. If any elements are missing (context, conflict, resolution, or extraction), completely REWRITE the 'gapPrompt' to explicitly reference the newly synthesized narrative details and ask a highly specific, penetrating question to prompt the narrator for the missing elements to complete the story.
+       - If NO (they are separate events, even if they occurred in the same Era or involve the same people): CREATE entirely new story objects and APPEND them to the array. Do NOT merge unrelated memories together. Treat them as distinctly separate stories. Do not lazily summarize them; preserve their granularity. If the story lacks context, conflict, resolution, or extraction, generate a highly specific, context-aware 'gapPrompt' referencing literal story events seeking the missing elements.
     3. Ensure ALL stories (existing and new) strictly adhere to the previously defined format. 
        - 'era' MUST strictly be "Childhood", "Teens", "Twenties", "Thirties", "Forties", "Fifties+", or "Timeless" (Use "Timeless" for generic themes, recipes, and life philosophies).
     4. LINGUISTIC CORRECTIONS: The narrator's cultural heritage/language background is: ${culturalContext || "Unknown"}. If the synopses contain phonetically misspelled foreign words, intelligently deduce the intended word and log it to 'linguisticCorrections'.
@@ -802,7 +802,7 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
     CRITICAL OUTPUT INSTRUCTION: 
     Return ONLY a JSON array containing the specific stories that were UPDATED (merged) AND the ENTIRELY NEW stories. 
     DO NOT output any existing stories from the master timeline that were untouched or unmodified by this new data.
-    If you modified an existing story, you MUST preserve its exact existing 'id'. If you created a new story, generate a new unique 'id' string (e.g. "new-uuid-123").
+    If you modified an existing story, you MUST preserve its exact existing 'id'. If you created a new story, generate a temporary string like "new" for the 'id' (we will handle UUID generation).
 
     --- EXISTING JSON ARRAY (MASTER TIMELINE) ---
     ${JSON.stringify(cachedStories)}
@@ -866,7 +866,7 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
                 items: { type: Type.STRING }
               }
             },
-            required: ["id", "era", "title", "synopsis", "psychometrics", "rubric", "peopleMentioned"]
+            required: ["id", "era", "title", "synopsis", "detailedNarrative", "psychometrics", "rubric", "extraction", "impact_metadata", "linguisticCorrections", "peopleMentioned", "gapPrompt"]
           }
         }
       }
@@ -882,10 +882,19 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
       const updatedCache = [...cachedStories];
       for (const delta of deltaStories) {
           const existingIdx = updatedCache.findIndex(s => s.id === delta.id);
-          if (existingIdx !== -1) {
-              updatedCache[existingIdx] = delta;
+          if (existingIdx !== -1 && delta.id && delta.id !== "new") {
+              const mergedStory = { ...delta };
+              // Ensure critical arrays are not null
+              mergedStory.psychometrics = mergedStory.psychometrics || [];
+              mergedStory.linguisticCorrections = mergedStory.linguisticCorrections || [];
+              mergedStory.peopleMentioned = mergedStory.peopleMentioned || [];
+              updatedCache[existingIdx] = mergedStory;
           } else {
-              updatedCache.push(delta);
+              const newStory = { ...delta, id: crypto.randomUUID() };
+              newStory.psychometrics = newStory.psychometrics || [];
+              newStory.linguisticCorrections = newStory.linguisticCorrections || [];
+              newStory.peopleMentioned = newStory.peopleMentioned || [];
+              updatedCache.push(newStory);
           }
       }
       return updatedCache;
@@ -959,7 +968,7 @@ export async function recompileHighFidelityStories(cachedStories: HighFidelitySt
               },
               peopleMentioned: { type: Type.ARRAY, items: { type: Type.STRING } }
             },
-            required: ["id", "era", "title", "synopsis", "psychometrics", "rubric", "peopleMentioned"]
+            required: ["id", "era", "title", "synopsis", "detailedNarrative", "psychometrics", "rubric", "extraction", "impact_metadata", "linguisticCorrections", "peopleMentioned", "gapPrompt"]
           }
         }
       }
@@ -1002,9 +1011,10 @@ export async function reduceDashboardOverview(currentOverview: DashboardOverview
 
     Task:
     1. CONDENSE and merge the new transcript's events into the master Synopsis. 
-       CRITICAL: The final synopsis MUST be a highly abstracted, emotionally resonant high-level biography. 
-       It MUST NOT exceed 3 concise paragraphs (approx 300 words total). Do NOT endlessly append facts. 
-       Synthesize the core essence of their journey and aggressively REMOVE minor/tangential details to keep it highly readable. Format with proper paragraph breaks.
+       CRITICAL: The final synopsis MUST NOT be a chronological play-by-play. It must forcefully read like an upbeat, glorified, and prestigious "obituary" or "achievement summary" that highlights their true legacy. 
+       Focus heavily on exactly what they accomplished, the wisdom they can pass on, and what they should be remembered for. Explicitly compress and summarize away granular details of their early/young life to save room for their lasting impact.
+       It MUST NOT exceed 3 concise paragraphs (approx 300 words total). Format with proper paragraph breaks.
+       VISUAL FORMATTING: You MUST strategically apply Markdown **bolding** to 4-8 highly significant key words, defining accomplishments, names, or overarching themes within the synopsis to make it highly scannable and visually engaging. Do NOT overdo it.
     2. Extract granular life themes (e.g., "#FirstLove", "#Resilience") from the new document and merge them into the Wisdom Themes. Update existing theme descriptions or append new ones to cleanly cover the new transcript context. Limit to around 10-20 highly potent themes overall.
     3. Based on the *entire* logically merged context, generate exactly 3 deep, empathetic follow-up questions for the AI Interviewer to ask the user next.
 

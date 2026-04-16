@@ -54,7 +54,7 @@ export function GlobalHeader() {
         <button className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition">
           <Settings size={16}/> Settings
         </button>
-        <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold cursor-pointer relative group z-[999]">
+        <div id="profile-btn" className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold cursor-pointer relative group z-[999]">
           {user.email?.[0].toUpperCase()}
           <div className="absolute top-full right-0 pt-2 w-52 hidden group-hover:block cursor-default">
              <div className="absolute center -inset-x-8 -inset-y-6 -top-10 z-0 bg-transparent" />

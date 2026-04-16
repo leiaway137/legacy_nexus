@@ -194,16 +194,19 @@ export default function SourceViewerPage() {
       let currentSpeaker = "Narrator";
 
       lines.forEach(line => {
-          // Attempt to extract speaker name if it strictly starts with "Speaker:" or "**Speaker**:"
-          const match = line.match(/^(\*\*?[^*:]+\*\*?|[^:]+):\s*(.*)/);
+          // Strip out rogue markdown bolds completely since chat bubbles don't render them anyway
+          const cleanLine = line.replace(/\*\*/g, '');
+          // Attempt to extract speaker name if it strictly starts with "Speaker:"
+          const match = cleanLine.match(/^([^:]+):\s*(.*)/);
+          
           if (match && match[1].length < 35) { // Limit speaker name length to prevent accidental sentence matching
-             currentSpeaker = match[1].replace(/\*/g, '').trim(); 
+             currentSpeaker = match[1].trim(); 
              blocks.push({ speaker: currentSpeaker, message: match[2].trim() });
           } else {
              if (blocks.length > 0) {
-                 blocks[blocks.length - 1].message += "\n\n" + line.trim();
+                 blocks[blocks.length - 1].message += "\n\n" + cleanLine.trim();
              } else {
-                 blocks.push({ speaker: currentSpeaker, message: line.trim() });
+                 blocks.push({ speaker: currentSpeaker, message: cleanLine.trim() });
              }
           }
       });

@@ -9,6 +9,7 @@ export const metadata: Metadata = {
 import { AuthProvider } from "@/components/AuthProvider";
 import { BackgroundJobProvider } from "@/components/BackgroundJobProvider";
 import { GlobalHeader } from "@/components/GlobalHeader";
+import { OnboardingProvider } from "@/components/OnboardingProvider";
 
 export default function RootLayout({
   children,
@@ -20,10 +21,12 @@ export default function RootLayout({
       <body className="h-screen flex flex-col overflow-hidden bg-[#F4F1EA] dark:bg-[#111111]">
         <BackgroundJobProvider>
           <AuthProvider>
-            <GlobalHeader />
-            <main className="flex-1 overflow-y-auto relative no-scrollbar flex flex-col">
-              {children}
-            </main>
+            <OnboardingProvider>
+              <GlobalHeader />
+              <main className="flex-1 overflow-y-auto relative no-scrollbar flex flex-col">
+                {children}
+              </main>
+            </OnboardingProvider>
           </AuthProvider>
         </BackgroundJobProvider>
       </body>

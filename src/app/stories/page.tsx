@@ -11,6 +11,8 @@ import { HighFidelityStory } from "@/lib/rag";
 import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights, saveChatHistory, fetchContacts, saveContact, type Contact } from "@/lib/firebase/db";
 import { extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, generateLegacyIdentityAction, generateDriftInsightAction, generateLegacyDeepDiveAction } from "@/app/actions";
 import { computeCentroidMath, analyzeCrossMetricPattern, RECOGNIZED_ERAS } from "@/lib/math";
+import { useOnboarding } from "@/components/OnboardingProvider";
+import { InfoTooltip } from "@/components/InfoTooltip";
 
 const ERA_ORDER: Record<string, number> = {
   "Childhood": 1,
@@ -295,8 +297,8 @@ export default function StoriesPage() {
       ].filter(Boolean).join(" | ");
 
       // 4. Map-Reduce Pipeline Loop
-      // Aggressive chunking (5000 chars = ~1000 words). This guarantees Gemini returns extremely quickly (<10sec), bypassing any local VPN/ISP idle socket timeouts that cause 'fetch failed'.
-      const CHUNK_SIZE = 5000; 
+      // Match the proven Physical Upload logic from the dashboard: 15,000 character chunks, single reductive pass.
+      const CHUNK_SIZE = 15000; 
       const AVG_SECONDS_PER_CHUNK = 8;
       
       // Calculate total chunks across all sources for accurate ETA
@@ -305,17 +307,19 @@ export default function StoriesPage() {
          totalChunks += Math.ceil((s.textContent?.length || 1) / CHUNK_SIZE);
       });
       let chunksProcessed = 0;
+      
+      // Collect ALL raw mapped stories from ALL documents before reducing them together, matching Physical Upload methodology.
+      let globalMappedStories: HighFidelityStory[] = [];
 
       for (let i = 0; i < sources.length; i++) {
         const s = sources[i];
         const text = s.textContent || "";
         const numChunks = Math.ceil(text.length / CHUNK_SIZE);
-        let documentMappedStories: HighFidelityStory[] = [];
         
         for (let c = 0; c < numChunks; c++) {
            const estimatedSeconds = (totalChunks - chunksProcessed) * AVG_SECONDS_PER_CHUNK;
            setEta(`~${Math.ceil(estimatedSeconds / 60)} min ${estimatedSeconds % 60} sec remaining`);
-           setProgressPercent((chunksProcessed / totalChunks) * 100);
+           setProgressPercent((chunksProcessed / totalChunks) * 80);
            
            if (numChunks > 1) {
               setMappingProgress(`Extracting events from: ${s.fileName || `Document ${i + 1}`} (Part ${c + 1}/${numChunks})`);
@@ -329,27 +333,30 @@ export default function StoriesPage() {
            try {
               const mappedStories = await extractHighFidelityStoriesAction(sourceContext, linguisticContext, undefined, identityContext);
               if (mappedStories && mappedStories.length > 0) {
-                 documentMappedStories.push(...mappedStories);
+                 globalMappedStories.push(...mappedStories);
               }
            } catch (mapErr: any) {
               console.error("Map-Reduce failed on specific chunk:", s.id, mapErr);
            }
            chunksProcessed++;
         }
-        
-        if (documentMappedStories.length > 0) {
-           setMappingProgress(`Bridging timeline for: ${s.fileName || `Document ${i + 1}`}...`);
-           currentCache = await reduceHighFidelityStoriesAction(currentCache, documentMappedStories, linguisticContext);
-        }
-        
-        try {
-          // Incrementally save the updated cache to Firebase FIRST, then mark as synced
-          // This prevents catastrophic data loss if the user refreshes before the global save at the very end
-          await saveHighFidelityStories(user.uid, currentCache);
-          await updateSourceSyncStatus(s.id, true);
-        } catch (e) {
-          console.error("Failed to update sync tracking for source:", s.id);
-        }
+      }
+      
+      // Perform ONE Massive Reductive Sync, just like the Physical Upload functionality
+      if (globalMappedStories.length > 0) {
+          setProgressPercent(85);
+          setMappingProgress("Bridging all extracted global timelines...");
+          currentCache = await reduceHighFidelityStoriesAction(currentCache, globalMappedStories, linguisticContext);
+          
+          try {
+              await saveHighFidelityStories(user.uid, currentCache);
+              // Mark all sources as synced
+              for (const s of sources) {
+                  await updateSourceSyncStatus(s.id, true);
+              }
+          } catch (e) {
+              console.error("Failed to commit global high fidelity sync:", e);
+          }
       }
       
       if (currentCache.length > 0) {

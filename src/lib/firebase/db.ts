@@ -227,6 +227,7 @@ export interface UserProfile {
   familyAccessEmails?: string[];
   isAnonymizedBuildReady?: boolean;
   pseudonymMap?: Record<string, string>;
+  completedTours?: string[]; // tracks paths that have been toured e.g. ['/dashboard', '/sources']
   updatedAt?: any;
 }
 

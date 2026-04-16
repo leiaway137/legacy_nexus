@@ -12,6 +12,7 @@ import { Sparkles, Search, BookOpen, FileText, X, PlusCircle, LogOut, ArrowRight
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { InterviewerModal } from "@/components/InterviewerModal";
+import { useOnboarding } from "@/components/OnboardingProvider";
 import { PodcastModal } from "@/components/PodcastModal";
 import { auth } from "@/lib/firebase/client";
 
@@ -26,6 +27,7 @@ export interface UploadProgressState {
 
 export default function Home() {
   const { user, loading } = useAuth();
+  const { startTour, checkTourReady } = useOnboarding();
   const { jobs } = useBackgroundJobs();
   const [sources, setSources] = useState<NotebookSource[]>([]);
   const [synopsis, setSynopsis] = useState<string>("");
@@ -162,6 +164,17 @@ export default function Home() {
   useEffect(() => {
     if (user) {
       hydrateDashboardState();
+      
+      // Check onboarding
+      checkTourReady('dashboard').then(shouldRun => {
+          if (shouldRun) {
+              startTour('dashboard', [
+                  { targetId: "profile-btn", title: "Complete Your Profile", content: "Welcome to Legacy Nexus! Before uploading stories, you must complete your personal profile so the AI knows who you are.", placement: "left", disableSkip: true },
+                  { targetId: "vault-btn", title: "Upload Your Documents", content: "Once your profile is set, click here to upload your transcripts, journals, and memoirs into the secure vault.", placement: "bottom" },
+                  { targetId: "interviewer-btn", title: "Active Interviewer", content: "Got gaps in your story? Ask the AI Interviewer to prompt you with questions uniquely tailored to your life.", placement: "right" }
+              ]);
+          }
+      });
     }
   }, [user]);
 
@@ -218,6 +231,14 @@ export default function Home() {
 
   const handleCloudUpload = async (files: File[]) => {
     if (!user || files.length === 0) return;
+    
+    // 🛡️ Identity Enforcement Barrier
+    const profile = await fetchUserProfile(user.uid);
+    if (!profile?.firstName || !profile?.lastName) {
+       alert("⚠️ Profile Incomplete!\n\nLegacy Nexus requires your First and Last name to correctly identify you in transcripts and preserve narrative perspective during memory extraction. Please complete your profile before uploading sources.");
+       return;
+    }
+
     setIsUploading(true);
     const uploadedSources: NotebookSource[] = [];
     
@@ -228,8 +249,7 @@ export default function Home() {
     
     const rawMappedStories: HighFidelityStory[] = [];
 
-    const profile = await fetchUserProfile(user.uid);
-    const subjectName = profile?.firstName || (user.displayName ? user.displayName.split(" ")[0] : "the user");
+    const subjectName = profile.firstName;
 
     // Process and extract to Firebase Persistence sequentially
     for (const file of files) {
@@ -588,10 +608,7 @@ export default function Home() {
   };
 
   const handleTagClick = (wisdom: WisdomSummary) => {
-    const hasRealSummary = wisdom.summary && !wisdom.summary.includes('pending');
-    const promptMessage = hasRealSummary 
-      ? `Please discuss the theme of ${wisdom.tag}. You can expand gracefully on this insight: "${wisdom.summary}"`
-      : `Based on the transcripts, what can you tell me about the theme of ${wisdom.tag}?`;
+    const promptMessage = `Tell me more about the theme of ${wisdom.tag}.`;
     handleChatSubmit(undefined, promptMessage);
   };
 
@@ -637,6 +654,7 @@ export default function Home() {
               Sources
             </h2>
             <button 
+              id="vault-btn"
               onClick={() => setShowVault(!showVault)}
               className="text-xs bg-amber-50 text-amber-600 hover:bg-amber-100 px-2 py-1 rounded-md font-bold transition flex items-center gap-1"
             >
@@ -819,9 +837,11 @@ export default function Home() {
                  {(synopsis || chunks.length > 0) && (
                    <div className="mb-12">
                      <h1 className="text-3xl font-extrabold text-zinc-900 dark:text-zinc-100 mb-6 leading-tight">Legacy Overview</h1>
-                     <p className="text-base leading-relaxed text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">
-                       {synopsis}
-                     </p>
+                     <div className="prose prose-zinc dark:prose-invert text-base leading-relaxed text-zinc-700 dark:text-zinc-300 max-w-none prose-p:mb-5">
+                       <ReactMarkdown>
+                         {synopsis}
+                       </ReactMarkdown>
+                     </div>
                    </div>
                  )}
 
@@ -955,6 +975,7 @@ export default function Home() {
                  </Link>
 
                  <div 
+                   id="interviewer-btn"
                    onClick={() => setIsInterviewerOpen(true)}
                    className="bg-purple-50/50 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-900 hover:border-purple-400 transition cursor-pointer p-4 rounded-xl flex items-center gap-4 hover:shadow-md"
                  >

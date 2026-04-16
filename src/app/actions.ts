@@ -87,7 +87,7 @@ export async function embedStoriesToPineconeAction(userId: string, sourceId: str
         const batchStories = stories.slice(i, i + BATCH_LIMIT);
         
         const batchTexts = batchStories.map(story => {
-           let baseText = `[Legacy Entry]\nTitle: ${story.title}\nEra: ${story.era}\nSynopsis: ${story.synopsis}\nLegacy Lesson: ${story.extraction.legacyLesson}\nThemes: ${story.psychometrics.map(p => `${p.label} (${p.val})`).join(', ')}\nPeople Mentioned: ${(story.peopleMentioned || []).join(', ')}`;
+           let baseText = `[Legacy Entry]\nTitle: ${story.title}\nEra: ${story.era}\nSynopsis: ${story.synopsis}\nNarrative: ${story.detailedNarrative || "N/A"}\nLegacy Lesson: ${story.extraction?.legacyLesson || "N/A"}\nThemes: ${story.psychometrics?.map(p => `${p.label} (${p.val})`).join(', ') || ""}\nPeople Mentioned: ${(story.peopleMentioned || []).join(', ')}`;
            if (story.linguisticCorrections && story.linguisticCorrections.length > 0) {
                baseText += `\nTranslations: ${story.linguisticCorrections.map(c => `Original audio '${c.original}' likely means '${c.guess}' (${c.meaning})`).join(' | ')}`;
            }
