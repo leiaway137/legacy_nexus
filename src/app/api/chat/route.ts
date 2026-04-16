@@ -20,8 +20,7 @@ export async function POST(req: Request) {
 
     // 2. Query Pinecone for the Top 10 Context Chunks natively at the Edge!
     const index = getPineconeIndex();
-    // @ts-ignore - Bypass Pinecone SDK strict typing for Vercel build
-    const queryResponse = await index.namespace(userId).query({
+    const queryResponse = await (index.namespace(userId).query as any)({
         vector: questionVector,
         topK: 40,
         includeMetadata: true

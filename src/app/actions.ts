@@ -1,5 +1,4 @@
 "use server";
-export const maxDuration = 60; // Expand Vercel max idle execution time up to 60s
 
 import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive, extractDemographicsFromTranscript, generateSandersonAdaptation, generatePodcastTranscript, generateAnonymizedStories, generateUniversalCastMapping } from "@/lib/rag";
 import { getPineconeIndex } from "@/lib/pinecone/client";
@@ -120,8 +119,7 @@ export async function embedStoriesToPineconeAction(userId: string, sourceId: str
        const ns = index.namespace(userId);
        for (let i = 0; i < vectors.length; i += batchSize) {
           const batch = vectors.slice(i, i + batchSize);
-          // @ts-ignore - Bypass Pinecone SDK strict typing for Vercel build
-          await ns.upsert(batch);
+          await ns.upsert(batch as any);
        }
     }
     
