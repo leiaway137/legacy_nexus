@@ -119,7 +119,10 @@ export async function embedStoriesToPineconeAction(userId: string, sourceId: str
        const ns = index.namespace(userId);
        for (let i = 0; i < vectors.length; i += batchSize) {
           const batch = vectors.slice(i, i + batchSize);
-          await ns.upsert(batch as any);
+          await ns.upsert(batch as any).catch(async () => {
+             // Fallback for newer v5+ Pinecone SDKs that strictly require options object wrapper
+             await ns.upsert({ records: batch } as any);
+          });
        }
     }
     
