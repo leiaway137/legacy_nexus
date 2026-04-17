@@ -48,6 +48,13 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
   const audioChunksRef = useRef<Blob[]>([]);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
+  // Pure Voice Isolation (for Cloning)
+  const isolatedMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const isolatedAudioChunksRef = useRef<Blob[]>([]);
+  const [isolatedAudioUrl, setIsolatedAudioUrl] = useState<string | null>(null);
+  const [isolatedDurationSecs, setIsolatedDurationSecs] = useState<number>(0);
+  const isolatedRecordingStartRef = useRef<number>(0);
+
   // Speech Recognition
   const recognitionRef = useRef<any>(null);
   const [liveTranscript, setLiveTranscript] = useState("");
@@ -117,6 +124,12 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
           mediaRecorderRef.current.stop();
           mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
         }
+        if (isolatedMediaRecorderRef.current && (isolatedMediaRecorderRef.current.state === "recording" || isolatedMediaRecorderRef.current.state === "paused")) {
+          if (isolatedMediaRecorderRef.current.state === "recording") {
+             setIsolatedDurationSecs(prev => prev + (Date.now() - isolatedRecordingStartRef.current) / 1000);
+          }
+          isolatedMediaRecorderRef.current.stop();
+        }
       };
     } else {
       setMicError("Browser does not support Speech Recognition. Please use Chrome.");
@@ -182,7 +195,21 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
         const url = URL.createObjectURL(audioBlob);
         setAudioUrl(url);
       };
+
+      isolatedMediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      isolatedAudioChunksRef.current = [];
+      isolatedMediaRecorderRef.current.ondataavailable = (e) => {
+        if (e.data.size > 0) isolatedAudioChunksRef.current.push(e.data);
+      };
+      isolatedMediaRecorderRef.current.onstop = () => {
+        const audioBlob = new Blob(isolatedAudioChunksRef.current, { type: 'audio/webm' });
+        const url = URL.createObjectURL(audioBlob);
+        setIsolatedAudioUrl(url);
+      };
+
       mediaRecorderRef.current.start();
+      isolatedMediaRecorderRef.current.start();
+      isolatedRecordingStartRef.current = Date.now();
       setHasStarted(true);
       
       if (initialPrompt && historyRef.current.length === 0) {
@@ -212,6 +239,12 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+    }
+    if (isolatedMediaRecorderRef.current && (isolatedMediaRecorderRef.current.state === "recording" || isolatedMediaRecorderRef.current.state === "paused")) {
+      if (isolatedMediaRecorderRef.current.state === "recording") {
+         setIsolatedDurationSecs(prev => prev + (Date.now() - isolatedRecordingStartRef.current) / 1000);
+      }
+      isolatedMediaRecorderRef.current.stop();
     }
   };
 
@@ -300,6 +333,12 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
   const speakUtterance = async (textToSpeak: string) => {
     setIsAiSpeaking(true);
     isAiSpeakingRef.current = true;
+
+    // Immediately pause pure voice recorder to entirely filter out the AI's acoustic echo
+    if (isolatedMediaRecorderRef.current && isolatedMediaRecorderRef.current.state === 'recording') {
+       setIsolatedDurationSecs(prev => prev + (Date.now() - isolatedRecordingStartRef.current) / 1000);
+       isolatedMediaRecorderRef.current.pause();
+    }
     
     // Attempt to fetch ultra-realistic ElevenLabs TTS
     try {
@@ -321,6 +360,10 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
                 
                 // Keep the delay to let acoustic echo fade out before enabling mic
                 setTimeout(() => {
+                  if (isolatedMediaRecorderRef.current && isolatedMediaRecorderRef.current.state === 'paused') {
+                      isolatedRecordingStartRef.current = Date.now();
+                      isolatedMediaRecorderRef.current.resume();
+                  }
                   if (recognitionRef.current && isRecording) {
                     try {
                       setLiveTranscript("");
@@ -346,22 +389,33 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
     }
     
     // If TTS completely failed or didn't return audio, gracefully restart the microphone anyway
-    // so the user can answer the text prompt they just read on screen
-    setIsAiSpeaking(false);
-    isAiSpeakingRef.current = false;
+    // but utilize Browser TTS as a fallback so the AI isn't entirely silent
+    console.warn("ElevenLabs TTS failed; falling back to browser SpeechSynthesis.");
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.onend = () => {
+       setIsAiSpeaking(false);
+       isAiSpeakingRef.current = false;
+       setTimeout(() => {
+          if (isolatedMediaRecorderRef.current && isolatedMediaRecorderRef.current.state === 'paused') {
+              isolatedRecordingStartRef.current = Date.now();
+              isolatedMediaRecorderRef.current.resume();
+          }
+          if (recognitionRef.current && !isRecording) {
+             try {
+                setLiveTranscript("");
+                transcriptBufferRef.current = "";
+                setIsRecording(true);
+                recognitionRef.current.start();
+             } catch(e) {
+                console.error("Failed to fallback restart mic", e);
+             }
+          }
+       }, 500);
+    };
+    window.speechSynthesis.speak(utterance);
     
-    setTimeout(() => {
-      if (recognitionRef.current && !isRecording) {
-        try {
-          setLiveTranscript("");
-          transcriptBufferRef.current = "";
-          setIsRecording(true);
-          recognitionRef.current.start();
-        } catch(e) {
-          console.error("Failed to fallback restart mic", e);
-        }
-      }
-    }, 1000); // 1-second delay so they can at least read the text before mic picks up their breathing
   };
 
 
@@ -544,10 +598,19 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
                 {audioUrl && (
                   <a 
                     href={audioUrl} 
-                    download={`Legacy_Audio_${new Date().getTime()}.webm`}
+                    download={`Legacy_Audio_${new Date().toISOString().split('T')[0]}.webm`}
                     className="px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 rounded-xl text-sm font-semibold transition flex items-center gap-2"
                   >
-                    <Download size={16}/> Audio
+                    <Download size={16}/> Full Session
+                  </a>
+                )}
+                {isolatedAudioUrl && (
+                  <a 
+                    href={isolatedAudioUrl} 
+                    download={`Pure_Voice_${new Date().toISOString().split('T')[0]}_${Math.round(isolatedDurationSecs)}s.webm`}
+                    className="px-4 py-2 bg-purple-50 text-purple-600 hover:bg-purple-100 dark:bg-purple-900/20 dark:text-purple-400 rounded-xl text-sm font-semibold transition flex items-center gap-2"
+                  >
+                    <Download size={16}/> Pure Voice
                   </a>
                 )}
                 <button 
