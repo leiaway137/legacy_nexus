@@ -327,6 +327,7 @@ export default function ContactsPage() {
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                 />
+             </div>
              <div className="flex gap-2">
                  <button onClick={() => setIsCreateModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition shadow-sm">
                    <Plus size={14}/> New Entity
