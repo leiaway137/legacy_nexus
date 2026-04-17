@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, User, Mail, ShieldCheck, Phone, Edit3, Trash2, Search, Upload, RefreshCw, Loader2, Quote, Sparkles, Star } from "lucide-react";
+import { ArrowLeft, Plus, User, Mail, ShieldCheck, Phone, Edit3, Trash2, Search, Upload, RefreshCw, Loader2, Quote, Sparkles, Star, X } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { useBackgroundJobs } from "@/components/BackgroundJobProvider";
 import { fetchContacts, saveContact, deleteContact, fetchUserSources, Contact, NotebookSource, updateContactAccessTier } from "@/lib/firebase/db";
@@ -44,6 +44,10 @@ export default function ContactsPage() {
   const listRef = useRef<HTMLDivElement>(null);
   
   const [editingData, setEditingData] = useState<(Partial<Contact> & { rawAliasesText?: string }) | null>(null);
+
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createData, setCreateData] = useState<{firstName: string, lastName: string, relationship: string, email: string}>({firstName: '', lastName: '', relationship: '', email: ''});
+
 
   useEffect(() => {
     if (user) {
@@ -266,6 +270,38 @@ export default function ContactsPage() {
       }
   };
 
+  const handleCreateContact = async () => {
+     if (!user) return;
+     if (!createData.firstName && !createData.lastName) return alert("Please provide at least a name.");
+     
+     const compName = [createData.firstName, createData.lastName].filter(Boolean).join(" ");
+     const newContact: Partial<Contact> = {
+         userId: user.uid,
+         originalName: compName,
+         completeName: compName,
+         firstName: createData.firstName,
+         lastName: createData.lastName,
+         preferredName: compName,
+         relationship: createData.relationship,
+         email: createData.email,
+         aliases: [],
+         source: 'import',
+         linkedAccountId: ""
+     };
+     
+     const newId = await saveContact(user.uid, newContact);
+     if (newId) {
+         const fullContact = { ...newContact, id: newId } as Contact;
+         setContacts(prev => [fullContact, ...prev]);
+         setActiveContactId(newId);
+         setIsCreateModalOpen(false);
+         setCreateData({firstName: '', lastName: '', relationship: '', email: ''});
+     } else {
+         alert("Failed to create entity. Please try again.");
+     }
+  };
+
+
   if (loading) return <div className="p-8 text-center"><Loader2 className="animate-spin mx-auto text-zinc-400" /></div>;
 
   return (
@@ -291,13 +327,17 @@ export default function ContactsPage() {
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                 />
+             <div className="flex gap-2">
+                 <button onClick={() => setIsCreateModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition shadow-sm">
+                   <Plus size={14}/> New Entity
+                 </button>
+                 <input type="file" accept=".vcf,.csv" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
+                 <button disabled={isImporting || isCommitingBulk} onClick={() => fileInputRef.current?.click()} className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50">
+                   {isImporting ? <Loader2 className="animate-spin" size={14}/> : <Upload size={14}/>}
+                   {isImporting ? "Processing..." : "Import CSV/VCF"}
+                 </button>
              </div>
-             <input type="file" accept=".vcf,.csv" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
-             <button disabled={isImporting || isCommitingBulk} onClick={() => fileInputRef.current?.click()} className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50">
-               {isImporting ? <Loader2 className="animate-spin" size={14}/> : <Upload size={14}/>}
-               {isImporting ? "Processing..." : "Import"}
-             </button>
-             <button disabled={contacts.length === 0} onClick={handleBulkCommit} title="Runs safely in the background" className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50">
+             <button disabled={contacts.length === 0} onClick={handleBulkCommit} title="Runs safely in the background" className="bg-zinc-900 dark:bg-white text-white dark:text-black px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50 hover:opacity-90">
                <RefreshCw size={14}/>
                Commit Ties to Timeline
              </button>
@@ -654,6 +694,66 @@ export default function ContactsPage() {
             )}
          </div>
       </main>
+
+      {/* CREATE MODAL */}
+      <AnimatePresence>
+         {isCreateModalOpen && (
+            <motion.div 
+               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+               className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 transition-all"
+            >
+               <motion.div 
+                   initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 10 }}
+                   className="bg-white dark:bg-zinc-900 rounded-3xl p-8 max-w-md w-full shadow-2xl relative border border-zinc-200 dark:border-zinc-800"
+               >
+                   <button onClick={() => setIsCreateModalOpen(false)} className="absolute top-5 right-5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition bg-zinc-100 dark:bg-zinc-800 p-2 rounded-full">
+                      <X size={16}/>
+                   </button>
+                   <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-full flex items-center justify-center mb-4">
+                      <User size={20} />
+                   </div>
+                   <h2 className="text-2xl font-bold font-serif text-zinc-900 dark:text-zinc-100 mb-1">Add Contact</h2>
+                   <p className="text-sm text-zinc-500 mb-6">Manually inject a person (like yourself) into the Address Book to correctly map their identity across timelines.</p>
+
+                   <div className="flex flex-col gap-4">
+                      <div className="grid grid-cols-2 gap-4">
+                         <div className="flex flex-col gap-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">First Name</span>
+                            <input value={createData.firstName} onChange={e => setCreateData({...createData, firstName: e.target.value})} className="px-3 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm outline-none focus:border-indigo-500 transition" placeholder="Leia" />
+                         </div>
+                         <div className="flex flex-col gap-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Last Name</span>
+                            <input value={createData.lastName} onChange={e => setCreateData({...createData, lastName: e.target.value})} className="px-3 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm outline-none focus:border-indigo-500 transition" placeholder="Way" />
+                         </div>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                         <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Relationship (To Narrator)</span>
+                         <select value={createData.relationship} onChange={e => setCreateData({...createData, relationship: e.target.value})} className="px-3 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm outline-none focus:border-indigo-500 transition cursor-pointer appearance-none">
+                            <option value="">Select a relationship (Optional)</option>
+                            <option value="Self">Self / Interviewer</option>
+                            <option value="Mother">Mother</option>
+                            <option value="Father">Father</option>
+                            <option value="Spouse">Spouse</option>
+                            <option value="Daughter">Daughter</option>
+                            <option value="Son">Son</option>
+                            <option value="Friend">Friend</option>
+                            <option value="Colleague">Colleague</option>
+                         </select>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                         <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Email Address</span>
+                         <input type="email" value={createData.email} onChange={e => setCreateData({...createData, email: e.target.value})} className="px-3 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm outline-none focus:border-indigo-500 transition" placeholder="Required for Archive Auth (Optional)" />
+                      </div>
+                   </div>
+
+                   <button onClick={handleCreateContact} className="w-full mt-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition shadow-md shadow-indigo-600/20 active:scale-[0.98]">
+                      Save to Address Book
+                   </button>
+               </motion.div>
+            </motion.div>
+         )}
+      </AnimatePresence>
+
     </div>
   );
 }
