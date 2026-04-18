@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/lib/firebase/client";
+import { signIn } from "next-auth/react";
 import { Loader2 } from "lucide-react";
 
 export function LoginModule() {
@@ -18,13 +17,20 @@ export function LoginModule() {
     setError("");
 
     try {
-      if (isSignUp) {
-        await createUserWithEmailAndPassword(auth, email, password);
+      const res = await signIn("credentials", {
+        redirect: false,
+        email,
+        password,
+      });
+      
+      if (res?.error) {
+         setError(res.error);
       } else {
-        await signInWithEmailAndPassword(auth, email, password);
+         // Successfully logged in via NextAuth
+         window.location.reload();
       }
     } catch (err: any) {
-      setError(err.message || "Failed to authenticate.");
+      setError("Failed to route authentication.");
     } finally {
       setLoading(false);
     }

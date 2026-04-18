@@ -1,36 +1,37 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
-import { User, onAuthStateChanged } from "firebase/auth";
-import { auth } from "@/lib/firebase/client";
+import { SessionProvider, useSession } from "next-auth/react";
+import React, { createContext, useContext } from "react";
 
-type AuthContextType = {
-  user: User | null;
-  loading: boolean;
-};
-
-const AuthContext = createContext<AuthContextType>({ user: null, loading: true });
+// We create a lightweight legacy wrapper wrapper here so we don't have to rewrite 
+// the `const { user } = useAuth()` hook across all 30 of your frontend components!
+const AuthCompatContext = createContext<any>({ user: null, loading: true });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  return (
+    <SessionProvider>
+      <AuthCompatBridge>{children}</AuthCompatBridge>
+    </SessionProvider>
+  );
+}
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
+// A bridge component that reads NextAuth session and mimics the exact shape of your old Firebase `useAuth()` hook
+function AuthCompatBridge({ children }: { children: React.ReactNode }) {
+  const { data: session, status } = useSession();
+  
+  // Format the NextAuth session into the exact shape the components expect (user.uid instead of user.id)
+  const user = session?.user ? { 
+    ...session.user, 
+    uid: session.user.id || session.user.email 
+  } : null;
 
   return (
-    <AuthContext.Provider value={{ user, loading }}>
+    <AuthCompatContext.Provider value={{ user, loading: status === "loading" }}>
       {children}
-    </AuthContext.Provider>
+    </AuthCompatContext.Provider>
   );
 }
 
 export function useAuth() {
-  return useContext(AuthContext);
+  return useContext(AuthCompatContext);
 }
