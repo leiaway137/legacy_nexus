@@ -8,7 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { InterviewerModal } from "@/components/InterviewerModal";
 import { HighFidelityStory } from "@/lib/rag";
-import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights, saveChatHistory, fetchContacts, saveContact, type Contact } from "@/lib/mongo/db";
+import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights, saveChatHistory, fetchContacts, saveContact, uploadNotebookSource, type Contact } from "@/lib/mongo/db";
 import { extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, generateLegacyIdentityAction, generateDriftInsightAction, generateLegacyDeepDiveAction, deleteAllPineconeResourcesAction, embedStoriesToPineconeAction } from "@/app/actions";
 import { computeCentroidMath, analyzeCrossMetricPattern, RECOGNIZED_ERAS } from "@/lib/math";
 import { useOnboarding } from "@/components/OnboardingProvider";
@@ -962,12 +962,17 @@ export default function StoriesPage() {
             }} 
             onSave={async (transcript) => {
                try {
-                   // This is completely optional since Identity Harvester auto-runs in Modal.
-                   // But let's just alert success organically.
+                   // Ensure the transcript actually gets inserted directly into the user's vault!
+                   const formattedFileName = `Interview_Session_${new Date().toISOString().split('T')[0]}.txt`;
+                   const fileSizeInBytes = new Blob([transcript]).size;
+                   await uploadNotebookSource(user.uid, formattedFileName, fileSizeInBytes, transcript);
+                   alert("Interview fragment saved! It is now stored in your Sources Vault and will be consumed when you next Analyze Archives.");
+               } catch (err) {
+                   console.error("Failed to push transcript to database:", err);
+                   alert("Failed to save transcript to your vault.");
                } finally {
                    setIsInterviewerOpen(false);
                    setActiveGapPrompt(null);
-                   alert("Interview fragment saved! When you re-run 'Analyze Archives', this new context will backfill all gaps automatically.");
                }
             }} 
           />
