@@ -1,4 +1,4 @@
-import { uploadNotebookSource } from "./mongo/db";
+import { uploadNotebookSource, saveDashboardState } from "./mongo/db";
 
 const TRANSCRIPT_1 = `[Interview: The Vision Behind Legacy Nexus]
 
@@ -65,35 +65,65 @@ Speaker 1: That sounds like it preserves the "Raw Truth."
 
 Speaker 2: Precisely. The goal was never just to store data. The goal of The Global Fold with Legacy Nexus is to extract the wisdom of a lived life and package it in a way that your great-great-grandchildren will actually want to engage with. It bridges the generational divide.`;
 
+const DUMMY_DASHBOARD_STATE = {
+    synopsis: "The user stands as the esteemed creator of Legacy Nexus, a revolutionary platform meticulously crafted to safeguard personal and family histories. Fueled by a profound understanding of memory loss and fragmented records, they innovated a system that actively helps individuals remember and reconstruct their past. A core tenet of their work is unwavering privacy, implemented through a closed-circuit vault architecture where AI utilizes data exclusively within encrypted user sessions. Through the ingenious integration of advanced AI, including the Progressive Disclosure engine, raw diaries and audio logs are transformed into permanently preserved High-Fidelity Stories. This living, recursive process ensures the 'Raw Truth' of a lived life is skillfully unearthed, chronologically woven, and packaged for future generations.",
+    wisdom: [
+        { title: "Preserving The Raw Truth", trigger: "Uncut Genesis Tape", text: "Legacy preservation is not about summarizing data; it's about extracting the wisdom of a lived life and bridging the generational divide so future descendants actively engage with their heritage." },
+        { title: "Progressive Disclosure", trigger: "System Architecture", text: "Passive archiving is fundamentally flawed. Active archiving utilizes AI to hunt down missing historical gaps and interactively query the archivist before memories are lost forever." },
+        { title: "Encrypted Sequestration", trigger: "Privacy Protocols", text: "Family histories must be defended. True legacy tools must isolate architecture to guarantee personal narratives never bleed into public foundation models." }
+    ],
+    questions: [
+        { text: "What specific gaps in your own family's history originally inspired the creation of the Progressive Disclosure engine?", targetId: "onboarding-insight-1", isGap: true },
+        { text: "Could you share a concrete example of a fragile memory that would have been completely lost without the interactive questioning of the AI?", targetId: "onboarding-insight-2", isGap: true }
+    ]
+};
+
 export async function seedUserOnboarding(userId: string) {
     try {
-        await uploadNotebookSource(
+        const doc1 = await uploadNotebookSource(
             userId, 
             "01_The_Vision_of_Legacy_Nexus.txt", 
             Buffer.byteLength(TRANSCRIPT_1, 'utf8'), 
             TRANSCRIPT_1
         );
         
-        await uploadNotebookSource(
+        const doc2 = await uploadNotebookSource(
             userId, 
             "02_System_Onboarding_Guide.txt", 
             Buffer.byteLength(TRANSCRIPT_2, 'utf8'), 
             TRANSCRIPT_2
         );
 
-        await uploadNotebookSource(
+        const doc3 = await uploadNotebookSource(
             userId, 
             "03_Interview_Privacy_and_Progressive_Disclosure.txt", 
             Buffer.byteLength(TRANSCRIPT_3, 'utf8'), 
             TRANSCRIPT_3
         );
 
-        await uploadNotebookSource(
+        const doc4 = await uploadNotebookSource(
             userId, 
             "04_Uncut_Genesis_Tape_The_Why.txt", 
             Buffer.byteLength(TRANSCRIPT_4, 'utf8'), 
             TRANSCRIPT_4
         );
+        
+        // Lock these files off from the AI Token Sync worker by preemptively injecting a completed dashboard state
+        const processedIds = [];
+        if (doc1) processedIds.push(doc1.id);
+        if (doc2) processedIds.push(doc2.id);
+        if (doc3) processedIds.push(doc3.id);
+        if (doc4) processedIds.push(doc4.id);
+        
+        const vaultState = {
+            id: "", // Will be auto-assigned by MongoDB
+            userId: userId,
+            ...DUMMY_DASHBOARD_STATE,
+            processedSourceIds: processedIds
+        };
+        
+        await saveDashboardState(userId, vaultState);
+        
     } catch (e) {
         console.error("Failed to seed onboarding datasets", e);
     }
