@@ -1,5 +1,6 @@
 import { uploadNotebookSource, saveDashboardState, saveHighFidelityStories, updateNotebookSourceIntelligence, updateSourceSyncStatus } from "./mongo/db";
 import type { HighFidelityStory, DocumentIntelligence } from "./rag/index";
+import { embedStoriesToPineconeAction } from "@/app/actions";
 
 const TRANSCRIPT_1 = `[Interview: The Vision Behind Legacy Nexus]
 
@@ -185,6 +186,14 @@ export async function seedUserOnboarding(userId: string) {
         
         await saveDashboardState(userId, vaultState);
         await saveHighFidelityStories(userId, DUMMY_STORIES);
+        
+        // Critically, we must push the pre-populated stories into the vector database 
+        // to establish the baseline RAG context for the Legacy Overview Chat engine!
+        try {
+            await embedStoriesToPineconeAction(userId, "onboarding-seed", DUMMY_STORIES);
+        } catch (embedError) {
+            console.error("Failed to push onboarding seed to Pinecone", embedError);
+        }
         
     } catch (e) {
         console.error("Failed to seed onboarding datasets", e);

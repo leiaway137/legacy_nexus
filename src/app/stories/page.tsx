@@ -962,11 +962,19 @@ export default function StoriesPage() {
             }} 
             onSave={async (transcript) => {
                try {
-                   // Ensure the transcript actually gets inserted directly into the user's vault!
                    const formattedFileName = `Interview_Session_${new Date().toISOString().split('T')[0]}.txt`;
                    const fileSizeInBytes = new Blob([transcript]).size;
                    await uploadNotebookSource(user.uid, formattedFileName, fileSizeInBytes, transcript);
-                   alert("Interview fragment saved! It is now stored in your Sources Vault and will be consumed when you next Analyze Archives.");
+                   
+                   const chunkStories = await extractHighFidelityStoriesAction(transcript, undefined, undefined, "the user");
+                   if (chunkStories.length > 0) {
+                       const currentStories = await fetchHighFidelityStories(user.uid);
+                       const updatedStories = await reduceHighFidelityStoriesAction(currentStories, chunkStories);
+                       await saveHighFidelityStories(user.uid, updatedStories);
+                       await embedStoriesToPineconeAction(user.uid, "nexus-vault", updatedStories);
+                   }
+                   
+                   alert("Interview fragment saved! It has been natively synchronized with your Timeline and Vector Database.");
                } catch (err) {
                    console.error("Failed to push transcript to database:", err);
                    alert("Failed to save transcript to your vault.");
