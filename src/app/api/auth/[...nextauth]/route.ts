@@ -4,6 +4,7 @@ import clientPromise from "@/lib/mongo/client"
 
 
 export const authOptions = {
+  secret: process.env.NEXTAUTH_SECRET || "legacy_nexus_default_fallback_secret_for_vercel",
   // We use JWT for simple secure stateless sessions that easily proxy over Vercel Edge
   session: { strategy: "jwt" as const },
   
