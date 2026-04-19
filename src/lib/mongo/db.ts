@@ -4,6 +4,13 @@ import clientPromise from "./client";
 import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview, type DocumentIntelligence } from "@/lib/rag";
 import { ObjectId } from "mongodb";
 
+// Global Serialization Helper for Next.js Server Components
+// Prevents MongoDB ObjectId and raw Date classes from crashing Next.js hydration boundaries
+function sanitizeMongo<T>(doc: any): T {
+  if (!doc) return doc;
+  return JSON.parse(JSON.stringify(doc)) as T;
+}
+
 // Type definitions to mirror the original Firebase structures
 export interface NotebookSource {
   _id?: ObjectId | string;
@@ -130,7 +137,7 @@ export async function fetchUserSessions(userId: string) {
     const db = await getDb();
     const session = await db.collection("legacy_session_active").findOne({ userId });
     if (session) {
-       return [{ id: session._id.toString(), ...session }];
+       return sanitizeMongo([{ id: session._id.toString(), ...session }]);
     }
   } catch (error) {
     console.error("Failed to fetch user active session:", error);
@@ -169,7 +176,7 @@ export async function fetchHighFidelityStories(userId: string): Promise<HighFide
   try {
     const db = await getDb();
     const doc = await db.collection("legacy_stories").findOne({ userId });
-    return doc?.stories || [];
+    return sanitizeMongo(doc?.stories || []);
   } catch (error) {
     console.error("Failed to fetch high fidelity stories:", error);
     return [];
@@ -200,7 +207,7 @@ export async function fetchUserSources(userId: string): Promise<NotebookSource[]
   try {
     const db = await getDb();
     const sources = await db.collection("user_sources").find({ userId }).sort({ uploadedAt: -1 }).toArray();
-    return sources.map(s => ({ id: s._id.toString(), ...s } as any));
+    return sanitizeMongo(sources.map(s => ({ id: s._id.toString(), ...s } as any)));
   } catch (e) {
     console.error("Failed to fetch user sources:", e);
     return [];
@@ -265,7 +272,7 @@ export async function fetchAudioPodcasts(userId: string): Promise<AudioPodcast[]
   try {
     const db = await getDb();
     const pods = await db.collection("podcasts").find({ userId }).sort({ createdAt: -1 }).toArray();
-    return pods.map(p => ({ id: p._id.toString(), ...p } as any));
+    return sanitizeMongo(pods.map(p => ({ id: p._id.toString(), ...p } as any)));
   } catch (e) {
     console.error("Failed to fetch podcasts:", e);
     return [];
@@ -279,7 +286,7 @@ export async function fetchContacts(userId: string): Promise<Contact[]> {
   try {
     const db = await getDb();
     const contacts = await db.collection("legacy_contacts").find({ userId }).toArray();
-    return contacts.map(c => ({ id: c._id.toString(), ...c } as any));
+    return sanitizeMongo(contacts.map(c => ({ id: c._id.toString(), ...c } as any)));
   } catch (err) {
     console.error("Failed to fetch contacts:", err);
     return [];
@@ -290,9 +297,11 @@ export async function saveContact(userId: string, contactData: Partial<Contact> 
   try {
     const db = await getDb();
     if (contactData.id && contactData.id.length === 24) {
+      const payload = { ...contactData, updatedAt: new Date() };
+      delete (payload as any)._id; // Never update _id
       await db.collection("legacy_contacts").updateOne(
         { _id: new ObjectId(contactData.id) },
-        { $set: { ...contactData, updatedAt: new Date() } }
+        { $set: payload }
       );
       return contactData.id;
     } else {
@@ -336,7 +345,7 @@ export async function fetchUserProfile(userId: string): Promise<UserProfile | nu
   try {
     const db = await getDb();
     const profile = await db.collection("user_profiles").findOne({ userId });
-    return profile as unknown as UserProfile | null;
+    return sanitizeMongo(profile);
   } catch (error) {
     return null;
   }
@@ -345,9 +354,12 @@ export async function fetchUserProfile(userId: string): Promise<UserProfile | nu
 export async function updateUserProfile(userId: string, data: Partial<UserProfile>): Promise<boolean> {
   try {
     const db = await getDb();
+    const payload = { ...data, updatedAt: new Date() };
+    delete (payload as any)._id; // Never update _id
+    
     await db.collection("user_profiles").updateOne(
       { userId },
-      { $set: { ...data, updatedAt: new Date() } },
+      { $set: payload },
       { upsert: true }
     );
     return true;
@@ -391,7 +403,9 @@ export async function saveDashboardState(userId: string, state: PersistentDashbo
     if (state === null) {
       await db.collection("legacy_dashboard_active").deleteOne({ userId });
     } else {
-      await db.collection("legacy_dashboard_active").updateOne({ userId }, { $set: { ...state, updatedAt: new Date() } }, { upsert: true });
+      const payload = { ...state, updatedAt: new Date() };
+      delete (payload as any)._id; // Never update _id
+      await db.collection("legacy_dashboard_active").updateOne({ userId }, { $set: payload }, { upsert: true });
     }
   } catch (err) {}
 }
@@ -399,14 +413,17 @@ export async function saveDashboardState(userId: string, state: PersistentDashbo
 export async function fetchDashboardState(userId: string): Promise<PersistentDashboardState | null> {
   try {
     const db = await getDb();
-    return await db.collection("legacy_dashboard_active").findOne({ userId }) as unknown as PersistentDashboardState;
+    const doc = await db.collection("legacy_dashboard_active").findOne({ userId });
+    return sanitizeMongo(doc);
   } catch (err) { return null; }
 }
 
 export async function saveLegacyInsights(userId: string, data: any): Promise<boolean> {
   try {
     const db = await getDb();
-    await db.collection("legacy_insights").updateOne({ userId }, { $set: { ...data, updatedAt: new Date() } }, { upsert: true });
+    const payload = { ...data, updatedAt: new Date() };
+    delete (payload as any)._id; // Never update _id
+    await db.collection("legacy_insights").updateOne({ userId }, { $set: payload }, { upsert: true });
     return true;
   } catch (error) { return false; }
 }
@@ -414,7 +431,8 @@ export async function saveLegacyInsights(userId: string, data: any): Promise<boo
 export async function fetchLegacyInsights(userId: string): Promise<any | null> {
   try {
     const db = await getDb();
-    return await db.collection("legacy_insights").findOne({ userId });
+    const doc = await db.collection("legacy_insights").findOne({ userId });
+    return sanitizeMongo(doc);
   } catch (error) { return null; }
 }
 
@@ -422,7 +440,7 @@ export async function fetchChatHistory(userId: string): Promise<{role: string, t
   try {
     const db = await getDb();
     const doc = await db.collection("legacy_chats").findOne({ userId });
-    return doc?.messages || [];
+    return sanitizeMongo(doc?.messages || []);
   } catch (error) { return []; }
 }
 
@@ -432,4 +450,79 @@ export async function saveChatHistory(userId: string, messages: {role: string, t
     await db.collection("legacy_chats").updateOne({ userId }, { $set: { messages, updatedAt: new Date() } }, { upsert: true });
     return true;
   } catch (error) { return false; }
+}
+
+export async function fetchProfileBySlug(slug: string): Promise<{id: string, profile: UserProfile} | null> {
+  try {
+    const db = await getDb();
+    const doc = await db.collection("user_profiles").findOne({ publicSlug: slug });
+    if (!doc) return null;
+    return sanitizeMongo({ id: doc._id.toString(), profile: doc });
+  } catch (err) { return null; }
+}
+
+export async function updateContactAccessTier(userId: string, contactId: string, email: string, tier: 'none' | 'family'): Promise<boolean> {
+  if (!email) return false;
+  try {
+    const db = await getDb();
+    let queryId: any = contactId;
+    try { queryId = new ObjectId(contactId); } catch(e) {}
+    await db.collection("legacy_contacts").updateOne({ _id: queryId }, { $set: { archiveAccessTier: tier, updatedAt: new Date() } });
+
+    // Update Profile
+    const profile = await db.collection("user_profiles").findOne({ userId });
+    if (!profile) return false;
+
+    let currentEmails: string[] = profile.familyAccessEmails || [];
+    const cleanedEmail = email.toLowerCase().trim();
+    currentEmails = currentEmails.filter((e: string) => e.toLowerCase().trim() !== cleanedEmail);
+
+    if (tier === 'family') {
+       if (!currentEmails.includes(cleanedEmail)) currentEmails.push(cleanedEmail);
+    }
+    
+    await db.collection("user_profiles").updateOne({ userId }, { $set: { familyAccessEmails: currentEmails } });
+    return true;
+  } catch (err) {
+    console.error("updateContactAccessTier error:", err);
+    return false;
+  }
+}
+
+export async function saveQuestionBankItem(userId: string, data: Partial<QuestionBankItem>): Promise<string | null> {
+  try {
+    const db = await getDb();
+    const dupCheck = await db.collection("legacy_questions").findOne({ userId, text: data.text });
+    if (dupCheck) return dupCheck._id.toString();
+
+    const res = await db.collection("legacy_questions").insertOne({ ...data, userId, isAnswered: false, createdAt: new Date() });
+    return res.insertedId.toString();
+  } catch (err) { return null; }
+}
+
+export async function fetchPendingBankQuestions(userId: string, limitCount: number = 5): Promise<QuestionBankItem[]> {
+  try {
+    const db = await getDb();
+    const docs = await db.collection("legacy_questions")
+      .find({ userId, isAnswered: false })
+      .sort({ createdAt: 1 })
+      .limit(limitCount)
+      .toArray();
+    return sanitizeMongo(docs.map((d: any) => ({ ...d, id: d._id.toString() } as unknown as QuestionBankItem)));
+  } catch (err) { return []; }
+}
+
+export async function markQuestionsAnswered(questionIds: string[]): Promise<boolean> {
+  try {
+    const db = await getDb();
+    const objectIds = questionIds.map(id => {
+        try { return new ObjectId(id); } catch(e) { return id; }
+    });
+    // @ts-ignore
+    await db.collection("legacy_questions").updateMany(
+      { _id: { $in: objectIds } },
+      { $set: { isAnswered: true } }
+    );
+    return true;
+  } catch (err) { return false; }
 }

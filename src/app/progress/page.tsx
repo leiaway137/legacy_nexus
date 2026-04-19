@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowRight, Activity, Info, TrendingUp, Sparkles, Target, Co
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
-import { fetchHighFidelityStories, fetchLegacyInsights } from "@/lib/firebase/db";
+import { fetchHighFidelityStories, fetchLegacyInsights } from "@/lib/mongo/db";
 import { HighFidelityStory } from "@/lib/rag";
 import { computeCentroidMath, RECOGNIZED_ERAS, LABELS } from "@/lib/math";
 import ReactMarkdown from "react-markdown";

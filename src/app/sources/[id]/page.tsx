@@ -5,7 +5,7 @@ import Link from "next/link";
 import ReactMarkdown from 'react-markdown';
 import { ArrowLeft, Loader2, Bot, User, TextQuote, RefreshCw } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
-import { fetchUserSources, updateNotebookSourceParsedContent, NotebookSource, fetchUserProfile, updateNotebookSourceIntelligence } from "@/lib/firebase/db";
+import { fetchUserSources, updateNotebookSourceParsedContent, NotebookSource, fetchUserProfile, updateNotebookSourceIntelligence } from "@/lib/mongo/db";
 import { useParams } from "next/navigation";
 
 export default function SourceViewerPage() {

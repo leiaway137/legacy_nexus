@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, embedStoriesToPineconeAction, deletePineconeSourceAction, deleteAllPineconeResourcesAction, recompileStoriesWithContactsAction, reduceDashboardOverviewAction } from "./actions";
-import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, saveQuestionBankItem, deleteAllUserContacts, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/firebase/db";
+import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, saveQuestionBankItem, deleteAllUserContacts, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/mongo/db";
 import { useBackgroundJobs } from "@/components/BackgroundJobProvider";
 import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview } from "@/lib/rag";
 import { motion, AnimatePresence } from "framer-motion";
@@ -14,7 +14,7 @@ import { LoginModule } from "@/components/LoginModule";
 import { InterviewerModal } from "@/components/InterviewerModal";
 import { useOnboarding } from "@/components/OnboardingProvider";
 import { PodcastModal } from "@/components/PodcastModal";
-import { auth } from "@/lib/firebase/client";
+
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ#".split('');
 
@@ -28,7 +28,7 @@ export interface UploadProgressState {
 export default function Home() {
   const { user, loading } = useAuth();
   const { startTour, checkTourReady } = useOnboarding();
-  const { jobs } = useBackgroundJobs();
+  const { jobs, startJob } = useBackgroundJobs();
   const [sources, setSources] = useState<NotebookSource[]>([]);
   const [synopsis, setSynopsis] = useState<string>("");
   const [wisdomSummaries, setWisdomSummaries] = useState<WisdomSummary[]>([]);
@@ -170,8 +170,8 @@ export default function Home() {
           if (shouldRun) {
               startTour('dashboard', [
                   { targetId: "profile-btn", title: "Complete Your Profile", content: "Welcome to Legacy Nexus! Before uploading stories, you must complete your personal profile so the AI knows who you are.", placement: "left", disableSkip: true },
-                  { targetId: "vault-btn", title: "Upload Your Documents", content: "Once your profile is set, click here to upload your transcripts, journals, and memoirs into the secure vault.", placement: "bottom" },
-                  { targetId: "interviewer-btn", title: "Active Interviewer", content: "Got gaps in your story? Ask the AI Interviewer to prompt you with questions uniquely tailored to your life.", placement: "right" }
+                  { targetId: "add-source-btn", title: "Upload Your Documents", content: "Once your profile is set, click here to upload your transcripts, journals, and memoirs into the secure vault.", placement: "bottom" },
+                  { targetId: "interviewer-btn", title: "Active Interviewer", content: "Got gaps in your story? Ask the AI Interviewer to prompt you with questions uniquely tailored to your life.", placement: "bottom" }
               ]);
           }
       });
@@ -251,9 +251,13 @@ export default function Home() {
 
     const subjectName = profile.firstName;
 
-    // Process and extract to Firebase Persistence sequentially
-    for (const file of files) {
-      setActiveUploads(prev => ({ ...prev, [file.name]: { stage: "Extracting Text", progress: 10 } }));
+    startJob("Uploading Documents", async (updateProgress) => {
+        // Process and extract to Firebase Persistence sequentially
+        let docIndex = 0;
+        for (const file of files) {
+          docIndex++;
+          updateProgress(`Extracting Text: ${file.name}`, (docIndex - 1) * 100 / files.length, 100);
+          setActiveUploads(prev => ({ ...prev, [file.name]: { stage: "Extracting Text", progress: 10 } }));
       const formData = new FormData();
       formData.append("file", file);
       const text = await uploadAndExtractAction(formData);
@@ -268,7 +272,9 @@ export default function Home() {
       
       for (let j = 0; j < textChunks.length; j++) {
          if (textChunks.length > 1) {
-             setActiveUploads(prev => ({ ...prev, [file.name]: { stage: `Mapping Era Threads (${j+1}/${textChunks.length})`, progress: 30 + (20 * (j/textChunks.length)) } }));
+             const prog = 30 + (20 * (j/textChunks.length));
+             setActiveUploads(prev => ({ ...prev, [file.name]: { stage: `Mapping Era Threads (${j+1}/${textChunks.length})`, progress: prog } }));
+             updateProgress(`Mapping Context (${j+1}/${textChunks.length})`, ((docIndex - 1) * 100 / files.length) + (prog / files.length), 100);
          }
          const chunkStories = await extractHighFidelityStoriesAction(textChunks[j], undefined, undefined, subjectName);
          rawMappedStories.push(...chunkStories);
@@ -284,9 +290,11 @@ export default function Home() {
         uploadedSources.push(savedDoc);
       }
       
+      updateProgress(`Securing in Vault: ${file.name}`, (docIndex - 0.5) * 100 / files.length, 100);
       setActiveUploads(prev => ({ ...prev, [file.name]: { stage: "Waiting for Global Synthesis", progress: 80 } }));
     }
     
+    updateProgress("Reducing & Synthesizing Global Timeline...", 90, 100);
     // Group Update: Set Global High Fidelity Progress
     setActiveUploads(prev => {
         const next = { ...prev };
@@ -355,6 +363,7 @@ export default function Home() {
         setActiveUploads({});
         setIsUploading(false);
     }, 2000);
+    }); // End startJob
   };
 
   const handleAutoProcess = async (notebookFiles: NotebookSource[], currentState: PersistentDashboardState | null = null) => {
@@ -364,7 +373,6 @@ export default function Home() {
       setWisdomSummaries([]);
       setQuestions([]);
       await saveChatHistory(user.uid, []);
-      // MUST WIPE PERSISTENT STATE FULLY IF NO SOURCES REMAIN
       await saveDashboardState(user.uid, { synopsis: "", wisdom: [], questions: [], processedSourceIds: [] });
       return;
     }
@@ -377,76 +385,73 @@ export default function Home() {
         processedSourceIds: []
     };
 
-    try {
-      // Find which files haven't been summarized yet
-      const unprocessedFiles = notebookFiles.filter(src => src.id && !activeState.processedSourceIds.includes(src.id));
-      
-      if (unprocessedFiles.length === 0) {
-          setIsProcessing(false);
-          setDashboardProgress(null);
-          return; // Everything already mapped!
+    startJob("Synthesizing Insights", async (updateProgress) => {
+      try {
+        const unprocessedFiles = notebookFiles.filter(src => src.id && !activeState.processedSourceIds.includes(src.id));
+        
+        if (unprocessedFiles.length === 0) {
+            setIsProcessing(false);
+            setDashboardProgress(null);
+            return; 
+        }
+
+        setSynopsis("Iterating over new additions to compile Legacy Overview...");
+        
+        let processedCount = 0;
+        const totalDocs = unprocessedFiles.length;
+        
+        setDashboardProgress({ current: 0, total: totalDocs, etaSeconds: 0 });
+
+        const profile = await fetchUserProfile(user.uid);
+        const subjectName = profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() : (user.displayName || "the user");
+
+        for (const src of unprocessedFiles) {
+            const safeText = src.textContent ? src.textContent.substring(0, 15000) : "";
+            if (!safeText) {
+               processedCount++;
+               continue;
+            }
+            
+            updateProgress(`Analyzing: ${src.fileName}...`, (processedCount / totalDocs) * 100, 100);
+            const updatedOverview = await reduceDashboardOverviewAction(activeState, safeText, subjectName);
+            const eta = Math.round((1500 * (totalDocs - processedCount)) / 1000);
+            setDashboardProgress({ current: processedCount, total: totalDocs, etaSeconds: eta });
+            
+            processedCount++;
+            updateProgress(`Processing: ${src.fileName}`, (processedCount / totalDocs) * 100, 100);
+            
+            // 1500ms breather to completely prevent 'SocketError: other side closed'
+            await new Promise(r => setTimeout(r, 1500));
+            
+            if (updatedOverview) {
+               activeState = {
+                   ...updatedOverview,
+                   processedSourceIds: [...activeState.processedSourceIds, src.id!]
+               };
+               
+               setSynopsis(activeState.synopsis);
+               setWisdomSummaries(activeState.wisdom);
+               setQuestions(activeState.questions);
+               
+               if (activeState.questions) {
+                   for (const q of activeState.questions) {
+                       await saveQuestionBankItem(user.uid, { text: q, source: 'dashboard' });
+                   }
+               }
+            }
+        }
+
+        updateProgress("Finalizing Dashboard Overview...", totalDocs, totalDocs);
+        await saveDashboardState(user.uid, activeState);
+        await saveChatHistory(user.uid, []); 
+      } catch (e) {
+        console.error(e);
+        setSynopsis(activeState.synopsis || "Synopsis unavailable. Waiting on background process to cycle.");
+      } finally {
+        setIsProcessing(false);
+        setDashboardProgress(null);
       }
-
-      setSynopsis("Iterating over new additions to compile Legacy Overview...");
-      
-      let processedCount = 0;
-      const totalDocs = unprocessedFiles.length;
-      let startTime = Date.now();
-      
-      setDashboardProgress({ current: 0, total: totalDocs, etaSeconds: 0 });
-
-      const profile = await fetchUserProfile(user.uid);
-      const subjectName = profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() : (user.displayName || "the user");
-
-      for (const src of unprocessedFiles) {
-          const safeText = src.textContent ? src.textContent.substring(0, 15000) : "";
-          if (!safeText) {
-             processedCount++;
-             continue;
-          }
-          
-          // Map-Reduce this single file into the rolling dashboard overview mapping exclusively to the Main Subject
-          const updatedOverview = await reduceDashboardOverviewAction(activeState, safeText, subjectName);
-          
-          processedCount++;
-          const elapsed = Date.now() - startTime;
-          const avg = elapsed / processedCount;
-          const eta = Math.round((avg * (totalDocs - processedCount)) / 1000);
-          setDashboardProgress({ current: processedCount, total: totalDocs, etaSeconds: eta });
-          
-          // 1500ms breather to completely prevent 'SocketError: other side closed'
-          await new Promise(r => setTimeout(r, 1500));
-          
-          if (updatedOverview) {
-             activeState = {
-                 ...updatedOverview,
-                 processedSourceIds: [...activeState.processedSourceIds, src.id!]
-             };
-             
-             // Update the UI dynamically during the loop!
-             setSynopsis(activeState.synopsis);
-             setWisdomSummaries(activeState.wisdom);
-             setQuestions(activeState.questions);
-             
-             // Bank the Dashboard Questions
-             if (activeState.questions) {
-                 for (const q of activeState.questions) {
-                     await saveQuestionBankItem(user.uid, { text: q, source: 'dashboard' });
-                 }
-             }
-          }
-      }
-
-      // Final Persistent Save to Firestore
-      await saveDashboardState(user.uid, activeState);
-      await saveChatHistory(user.uid, []); // Flush chats when vault structure completely changes
-    } catch (e) {
-      console.error(e);
-      setSynopsis(activeState.synopsis || "Synopsis unavailable. Waiting on background process to cycle.");
-    } finally {
-      setIsProcessing(false);
-      setDashboardProgress(null); // Reset progress
-    }
+    });
   };
 
   const removeSource = async (indexToRemove: number) => {
@@ -664,7 +669,7 @@ export default function Home() {
 
           <div className="p-4 flex flex-col gap-4 flex-1 h-0 pb-0">
             {/* Native Auto-upload Label */}
-            <label className={`flex items-center justify-center gap-2 w-full py-2.5 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-sm font-medium rounded-full cursor-pointer transition shadow-sm ${isUploading ? 'opacity-50 pointer-events-none':''}`}>
+            <label id="add-source-btn" className={`flex items-center justify-center gap-2 w-full py-2.5 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-sm font-medium rounded-full cursor-pointer transition shadow-sm ${isUploading ? 'opacity-50 pointer-events-none':''}`}>
               {isUploading ? <RefreshCcw size={16} className="animate-spin text-zinc-500"/> : <PlusCircle size={16} />} 
               {isUploading ? 'Uploading to cloud...' : 'Add sources'}
               <input 
@@ -1004,17 +1009,16 @@ export default function Home() {
                       <div className="space-y-3">
                         {jobs.map(job => (
                            <div key={job.id} className="flex flex-col gap-1.5">
-                             <div className="flex justify-between items-end text-xs">
-                               <span className="font-semibold text-zinc-800 dark:text-zinc-200">{job.title}</span>
-                               <span className="text-indigo-600 dark:text-indigo-400 font-mono">{job.progress}%</span>
+                             <div className="flex justify-between items-center px-4 pt-3 pb-2">
+                               <p className="font-medium text-sm text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">{job.title}</p>
+                               <span className="text-indigo-600 dark:text-indigo-400 font-mono">{Number(job.progress).toFixed(1)}%</span>
                              </div>
-                             <div className="w-full bg-indigo-100 dark:bg-indigo-900/50 rounded-full h-1.5 overflow-hidden">
-                               <div className="bg-indigo-500 h-1.5 transition-all duration-300 relative">
-                                  <div className="absolute inset-0 bg-white/30 backdrop-blur-sm -skew-x-12 animate-pulse"></div>
-                               </div>
-                               <div className="bg-indigo-500 h-1.5 transition-all duration-300 -mt-1.5" style={{ width: `${job.progress}%` }}></div>
+                             <div className="px-4 pb-3">
+                               <p className="text-xs text-zinc-500 truncate">{job.message}</p>
                              </div>
-                             <span className="text-[10px] text-zinc-500 truncate">{job.message}</span>
+                             <div className="w-full bg-indigo-100 dark:bg-indigo-900/40 rounded-b-xl overflow-hidden mt-2 relative">
+                               <div className="bg-indigo-500 h-1.5 transition-all duration-300" style={{ width: `${Number(job.progress).toFixed(1)}%` }}></div>
+                             </div>
                            </div>
                         ))}
                       </div>

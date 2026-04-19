@@ -839,6 +839,7 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
             properties: {
               id: { type: Type.STRING },
               era: { type: Type.STRING },
+              timelessCategory: { type: Type.STRING },
               title: { type: Type.STRING },
               synopsis: { type: Type.STRING },
               detailedNarrative: { type: Type.STRING },
@@ -858,10 +859,31 @@ export async function reduceHighFidelityStories(cachedStories: HighFidelityStory
                 properties: {
                   context: { type: Type.BOOLEAN },
                   conflict: { type: Type.BOOLEAN },
-                  resolution: { type: Type.BOOLEAN },
-                  extraction: { type: Type.BOOLEAN }
+                  resolution: { type: Type.BOOLEAN }
                 },
-                required: ["context", "conflict", "resolution", "extraction"]
+                required: ["context", "conflict", "resolution"]
+              },
+              extraction: {
+                type: Type.OBJECT,
+                properties: {
+                  present: { type: Type.BOOLEAN },
+                  depthLevel: { type: Type.INTEGER },
+                  primaryCategory: { type: Type.STRING },
+                  secondaryCategory: { type: Type.STRING },
+                  insightSummary: { type: Type.STRING },
+                  legacyLesson: { type: Type.STRING },
+                  rawQuote: { type: Type.STRING }
+                },
+                required: ["present", "depthLevel", "primaryCategory", "secondaryCategory", "insightSummary", "legacyLesson", "rawQuote"]
+              },
+              impact_metadata: {
+                type: Type.OBJECT,
+                properties: {
+                  emotional_intensity: { type: Type.INTEGER },
+                  narrative_complexity: { type: Type.INTEGER },
+                  duration_weight: { type: Type.NUMBER }
+                },
+                required: ["emotional_intensity", "narrative_complexity", "duration_weight"]
               },
               gapPrompt: { type: Type.STRING, nullable: true },
               linguisticCorrections: {
@@ -1027,9 +1049,10 @@ export async function reduceDashboardOverview(currentOverview: DashboardOverview
     Task:
     1. CONDENSE and merge the new transcript's events into the master Synopsis. 
        CRITICAL: The final synopsis MUST NOT be a chronological play-by-play. It must forcefully read like an upbeat, glorified, and prestigious "obituary" or "achievement summary" that highlights their true legacy. 
-       Focus heavily on exactly what they accomplished, the wisdom they can pass on, and what they should be remembered for. Explicitly compress and summarize away granular details of their early/young life to save room for their lasting impact.
-       It MUST NOT exceed 3 concise paragraphs (approx 300 words total). Format with proper paragraph breaks.
-       VISUAL FORMATTING: You MUST strategically apply Markdown **bolding** to 4-8 highly significant key words, defining accomplishments, names, or overarching themes within the synopsis to make it highly scannable and visually engaging. Do NOT overdo it.
+       It MUST be CONSOLIDATED down into a strictly SINGULAR PARAGRAPH.
+       Focus intensely on the subject as the central hero. AVOID mentioning anyone else specifically by name or detail.
+       Focus heavily on exactly what they accomplished, the wisdom they can pass on, and what they should be remembered for. Explicitly drop granular details of their early/young life to save room for their lasting impact.
+       VISUAL FORMATTING: You MUST strategically apply Markdown **bolding** to 4-8 highly significant key words, defining accomplishments or overarching themes within the singular paragraph to make it visually engaging. Do NOT overdo it.
     2. Extract granular life themes (e.g., "#FirstLove", "#Resilience") from the new document and merge them into the Wisdom Themes. Update existing theme descriptions or append new ones to cleanly cover the new transcript context. Limit to around 10-20 highly potent themes overall.
     3. Based on the *entire* logically merged context, generate exactly 3 deep, empathetic follow-up questions for the AI Interviewer to ask the user next.
 

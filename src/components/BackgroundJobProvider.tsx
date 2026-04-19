@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useState, useRef, ReactNode } from "react";
 
 export interface JobState {
   id: string;
@@ -21,8 +21,12 @@ const BackgroundJobContext = createContext<BackgroundJobContextType | undefined>
 
 export function BackgroundJobProvider({ children }: { children: ReactNode }) {
   const [jobs, setJobs] = useState<JobState[]>([]);
+  const runningJobsRef = useRef<Set<string>>(new Set());
 
   const startJob = async (title: string, taskFn: (updateProgress: (message: string, current: number, total: number) => void) => Promise<void>) => {
+    if (runningJobsRef.current.has(title)) return; // Prevent duplicates
+    runningJobsRef.current.add(title);
+
     const jobId = Math.random().toString(36).substring(7);
     
     setJobs(prev => [...prev, {
@@ -35,8 +39,9 @@ export function BackgroundJobProvider({ children }: { children: ReactNode }) {
     }]);
 
     const updateProgress = (message: string, progress: number, total: number) => {
+      const cappedProgress = Math.min(progress, total);
       setJobs(prev => prev.map(job => 
-        job.id === jobId ? { ...job, message, progress, total } : job
+        job.id === jobId ? { ...job, message, progress: cappedProgress, total } : job
       ));
     };
 
@@ -56,6 +61,8 @@ export function BackgroundJobProvider({ children }: { children: ReactNode }) {
       setJobs(prev => prev.map(job => 
         job.id === jobId ? { ...job, status: 'error', message: e.message || "Operation failed." } : job
       ));
+    } finally {
+      runningJobsRef.current.delete(title);
     }
   };
 

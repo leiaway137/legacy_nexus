@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { X, Save, Mail, User, ShieldCheck, Loader2, Quote, RefreshCw, Upload, Sparkles } from "lucide-react";
-import { Contact, saveContact, fetchContacts, NotebookSource } from "@/lib/firebase/db";
+import { Contact, saveContact, fetchContacts, NotebookSource } from "@/lib/mongo/db";
 import { recompileStoriesWithContactsAction } from "@/app/actions";
-import { fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/firebase/db";
+import { fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/mongo/db";
 import { parseCSV, parseVCF, correlateContacts } from "@/lib/contacts";
 
 interface NetworkModalProps {

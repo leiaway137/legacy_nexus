@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { type UserProfile, fetchProfileBySlug, fetchHighFidelityStories, fetchDashboardState, PersistentDashboardState } from "@/lib/firebase/db";
+import { type UserProfile, fetchProfileBySlug, fetchHighFidelityStories, fetchDashboardState, PersistentDashboardState } from "@/lib/mongo/db";
 import { HighFidelityStory } from "@/lib/rag";
 import { ShieldAlert, BookOpen, Quote, Shield, Menu, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";

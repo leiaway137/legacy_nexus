@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, User, Mail, Shield, Sparkles, Save, Loader2, MapPin, Calendar, Users, Globe2, MessageSquare } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
-import { fetchUserProfile, updateUserProfile, type UserProfile } from "@/lib/firebase/db";
+import { fetchUserProfile, updateUserProfile, type UserProfile } from "@/lib/mongo/db";
 
 export default function ProfilePage() {
   const { user, loading } = useAuth();

@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronRight, ChevronLeft } from 'lucide-react';
 import { useAuth } from './AuthProvider';
-import { fetchUserProfile, updateUserProfile } from '@/lib/firebase/db';
+import { fetchUserProfile, updateUserProfile } from '@/lib/mongo/db';
 
 export interface TourStep {
   targetId: string;

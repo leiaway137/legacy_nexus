@@ -8,7 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { InterviewerModal } from "@/components/InterviewerModal";
 import { HighFidelityStory } from "@/lib/rag";
-import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights, saveChatHistory, fetchContacts, saveContact, type Contact } from "@/lib/firebase/db";
+import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights, saveChatHistory, fetchContacts, saveContact, type Contact } from "@/lib/mongo/db";
 import { extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, generateLegacyIdentityAction, generateDriftInsightAction, generateLegacyDeepDiveAction, deleteAllPineconeResourcesAction, embedStoriesToPineconeAction } from "@/app/actions";
 import { computeCentroidMath, analyzeCrossMetricPattern, RECOGNIZED_ERAS } from "@/lib/math";
 import { useOnboarding } from "@/components/OnboardingProvider";
@@ -237,10 +237,11 @@ export default function StoriesPage() {
     async function loadCached() {
       if (user) {
         const cached = await fetchHighFidelityStories(user.uid);
-        if (cached && cached.length > 0) {
+        if (cached) {
           setStories(cached);
-          setHasScanned(true);
         }
+        setHasScanned(true); // Always trip this so the UI knows the DB was checked, even if empty.
+        
         const cList = await fetchContacts(user.uid);
         setContacts(cList);
       }

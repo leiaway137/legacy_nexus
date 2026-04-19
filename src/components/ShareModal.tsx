@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { X, Lock, Users, ShieldAlert, Globe, Loader2, Copy, Check, Info } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { type UserProfile, updateUserProfile, checkSlugAvailability, fetchUserProfile, fetchHighFidelityStories } from "@/lib/firebase/db";
+import { type UserProfile, updateUserProfile, checkSlugAvailability, fetchUserProfile, fetchHighFidelityStories } from "@/lib/mongo/db";
 import { generateUniversalCastMappingAction } from "@/app/actions";
 import { UNIVERSAL_CAST } from "@/lib/constants";
 

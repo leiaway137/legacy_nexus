@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { X, Play, Square, Loader2, Save, FileAudio, RefreshCw, AudioLines } from "lucide-react";
 import { generatePodcastTranscriptAction } from "@/app/actions";
-import { AudioPodcast, fetchAudioPodcasts, saveAudioPodcast, fetchUserSources } from "@/lib/firebase/db";
+import { AudioPodcast, fetchAudioPodcasts, saveAudioPodcast, fetchUserSources } from "@/lib/mongo/db";
 
 interface PodcastModalProps {
   userId: string;
