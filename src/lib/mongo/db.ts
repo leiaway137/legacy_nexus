@@ -366,26 +366,37 @@ export async function fetchUserProfile(userId: string): Promise<UserProfile | nu
 export async function deleteUserAccount(userId: string): Promise<boolean> {
   try {
     const db = await getDb();
+    
     let objectIdUserId;
-    try {
-        objectIdUserId = new ObjectId(userId);
-    } catch {
-        // Fallback for string-based IDs if standard ObjectId casting fails
-        objectIdUserId = userId;
+    let resolvedIdString = userId;
+
+    // Hardened Resolution: If the frontend hydration fails and passes the user email fallback, resolve the true Mongo Object ID
+    if (userId.includes("@")) {
+        const userRec = await db.collection("users").findOne({ email: userId.toLowerCase() });
+        if (!userRec) return false; // Not found, nothing to delete
+        
+        objectIdUserId = userRec._id;
+        resolvedIdString = userRec._id.toString();
+    } else {
+        try {
+            objectIdUserId = new ObjectId(userId);
+        } catch {
+            objectIdUserId = userId;
+        }
     }
     
-    // Purge across ALL related MongoDB Collections
+    // Purge across ALL related MongoDB Collections using the strictly resolved UUID string
     await db.collection("users").deleteOne({ _id: objectIdUserId as any });
-    await db.collection("user_profiles").deleteOne({ userId });
-    await db.collection("user_sources").deleteMany({ userId });
-    await db.collection("legacy_session_active").deleteOne({ userId });
-    await db.collection("legacy_dashboard_active").deleteOne({ userId });
-    await db.collection("legacy_stories").deleteOne({ userId });
-    await db.collection("legacy_podcasts").deleteMany({ userId });
-    await db.collection("legacy_contacts").deleteMany({ userId });
-    await db.collection("legacy_insights").deleteOne({ userId });
-    await db.collection("legacy_chats").deleteOne({ userId });
-    await db.collection("legacy_questions").deleteMany({ userId });
+    await db.collection("user_profiles").deleteOne({ userId: resolvedIdString });
+    await db.collection("user_sources").deleteMany({ userId: resolvedIdString });
+    await db.collection("legacy_session_active").deleteOne({ userId: resolvedIdString });
+    await db.collection("legacy_dashboard_active").deleteOne({ userId: resolvedIdString });
+    await db.collection("legacy_stories").deleteOne({ userId: resolvedIdString });
+    await db.collection("legacy_podcasts").deleteMany({ userId: resolvedIdString });
+    await db.collection("legacy_contacts").deleteMany({ userId: resolvedIdString });
+    await db.collection("legacy_insights").deleteOne({ userId: resolvedIdString });
+    await db.collection("legacy_chats").deleteOne({ userId: resolvedIdString });
+    await db.collection("legacy_questions").deleteMany({ userId: resolvedIdString });
     
     return true;
   } catch (error) {
