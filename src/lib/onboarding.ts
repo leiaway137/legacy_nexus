@@ -73,8 +73,8 @@ const DUMMY_DASHBOARD_STATE = {
         { tag: "Encrypted Sequestration", summary: "Family histories must be defended. True legacy tools must isolate architecture to guarantee personal narratives never bleed into public foundation models." }
     ],
     questions: [
-        { text: "What specific gaps in your own family's history originally inspired the creation of the Progressive Disclosure engine?", targetId: "onboarding-insight-1", isGap: true },
-        { text: "Could you share a concrete example of a fragile memory that would have been completely lost without the interactive questioning of the AI?", targetId: "onboarding-insight-2", isGap: true }
+        "What specific gaps in your own family's history originally inspired the creation of the Progressive Disclosure engine?",
+        "Could you share a concrete example of a fragile memory that would have been completely lost without the interactive questioning of the AI?"
     ]
 };
 
