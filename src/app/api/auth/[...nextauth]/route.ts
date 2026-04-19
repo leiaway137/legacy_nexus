@@ -13,7 +13,8 @@ export const authOptions = {
       name: "Legacy Nexus Internal",
       credentials: {
         email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" }
+        password: { label: "Password", type: "password" },
+        action: { label: "Action", type: "text" }
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
@@ -24,13 +25,19 @@ export const authOptions = {
            const user = await db.collection("users").findOne({ email: credentials.email.toLowerCase() });
            
            if (!user) {
-              // MVP: Auto-register user if they don't exist yet (or explicitly handle Registration in a separated pathway)
+              if (credentials.action === "login") throw new Error("No account found! Please create an account first.");
+              
+              // explicitly handle Registration pathway
               const res = await db.collection("users").insertOne({
                  email: credentials.email.toLowerCase(),
                  passwordHash: credentials.password, // TODO: bcrypt hash in production
                  createdAt: new Date()
               });
               return { id: res.insertedId.toString(), email: credentials.email };
+           }
+           
+           if (credentials.action === "signup") {
+              throw new Error("An account with this email already exists!");
            }
            
            // Verify password

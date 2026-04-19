@@ -21,6 +21,7 @@ export function LoginModule() {
         redirect: false,
         email,
         password,
+        action: isSignUp ? "signup" : "login"
       });
       
       if (res?.error) {
