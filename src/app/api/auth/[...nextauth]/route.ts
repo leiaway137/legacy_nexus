@@ -1,6 +1,7 @@
 import NextAuth from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import clientPromise from "@/lib/mongo/client"
+import { seedUserOnboarding } from "@/lib/onboarding"
 
 
 export const authOptions = {
@@ -33,7 +34,13 @@ export const authOptions = {
                  passwordHash: credentials.password, // TODO: bcrypt hash in production
                  createdAt: new Date()
               });
-              return { id: res.insertedId.toString(), email: credentials.email };
+              
+              const newUserId = res.insertedId.toString();
+              
+              // Seed the user with dummy onboarding transcripts dynamically without blocking the auth return
+              seedUserOnboarding(newUserId).catch(e => console.error(e));
+              
+              return { id: newUserId, email: credentials.email };
            }
            
            if (credentials.action === "signup") {
