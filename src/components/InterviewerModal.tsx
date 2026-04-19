@@ -19,6 +19,7 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
   const historyRef = useRef<{ role: string; text: string }[]>([]);
   const [imageBase64, setImageBase64] = useState<string | undefined>();
   const [isRecording, setIsRecording] = useState(false);
+  const isRecordingRef = useRef(false);
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
@@ -105,7 +106,7 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
       // Robustly handle abrupt stops (like 'no-speech' timeouts from the browser)
       recognitionRef.current.onend = () => {
         // Only auto-restart if we are actively recording and AI isn't speaking
-        if (isRecording && !isAiSpeakingRef.current && !isProcessingTurnRef.current) {
+        if (isRecordingRef.current && !isAiSpeakingRef.current && !isProcessingTurnRef.current) {
            try { recognitionRef.current.start(); } catch(e) {}
         }
       };
@@ -251,9 +252,10 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
   const toggleMic = () => {
     if (!recognitionRef.current) return alert("Speech recognition not supported in this browser.");
 
-    if (isRecording) {
+    if (isRecordingRef.current) {
       recognitionRef.current.stop();
       setIsRecording(false);
+      isRecordingRef.current = false;
       
       if (liveTranscript.trim()) {
         const newHistory = [...history, { role: "user", text: liveTranscript.trim() }];
@@ -272,6 +274,7 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
       setLiveTranscript("");
       recognitionRef.current.start();
       setIsRecording(true);
+      isRecordingRef.current = true;
     }
   };
 
@@ -289,7 +292,7 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
     if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch(e) {}
     }
-    setIsRecording(false);
+    // Maintain recording state through AI turn so the microphone safely auto-restarts and stays visibly active
     isProcessingTurnRef.current = false;
     isAiSpeakingRef.current = true;
     
@@ -364,7 +367,7 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
                       isolatedRecordingStartRef.current = Date.now();
                       isolatedMediaRecorderRef.current.resume();
                   }
-                  if (recognitionRef.current && isRecording) {
+                  if (recognitionRef.current && isRecordingRef.current) {
                     try {
                       setLiveTranscript("");
                       transcriptBufferRef.current = "";
