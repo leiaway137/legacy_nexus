@@ -138,7 +138,7 @@ export default function Home() {
      if (!user || (!overrideInput.trim() && !selectionContext?.text)) return;
      setIsSavingOverride(true);
      try {
-       const profile = await fetchUserProfile(user.uid) || {};
+       const profile = await fetchUserProfile(user.uid) || {} as any;
        const currentOverrides = profile.userOverrides || [];
        const newOverride = `Discrepancy spotted: AI originally generated "${selectionContext?.text}". User Corrected Truth: ${overrideInput}`;
        
@@ -373,12 +373,14 @@ export default function Home() {
       setWisdomSummaries([]);
       setQuestions([]);
       await saveChatHistory(user.uid, []);
-      await saveDashboardState(user.uid, { synopsis: "", wisdom: [], questions: [], processedSourceIds: [] });
+      await saveDashboardState(user.uid, { id: "", userId: user.uid, synopsis: "", wisdom: [], questions: [], processedSourceIds: [] });
       return;
     }
     
     setIsProcessing(true);
     let activeState: PersistentDashboardState = currentState || {
+        id: "",
+        userId: user.uid,
         synopsis: "",
         wisdom: [],
         questions: [],
@@ -425,6 +427,8 @@ export default function Home() {
             
             if (updatedOverview) {
                activeState = {
+                   id: activeState.id || "",
+                   userId: user.uid,
                    ...updatedOverview,
                    processedSourceIds: [...activeState.processedSourceIds, src.id!]
                };

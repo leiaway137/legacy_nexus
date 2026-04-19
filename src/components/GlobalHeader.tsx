@@ -97,7 +97,7 @@ export function GlobalHeader() {
                        <BookOpen size={16}/> My Stories
                      </Link>
                      
-                     <button onClick={() => { setIsProfileOpen(false); auth.signOut(); }} className="w-full text-left px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg flex items-center gap-2 mt-1 border-t border-zinc-100 dark:border-zinc-800 pt-3 cursor-pointer transition">
+                     <button onClick={() => { setIsProfileOpen(false); signOut(); }} className="w-full text-left px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg flex items-center gap-2 mt-1 border-t border-zinc-100 dark:border-zinc-800 pt-3 cursor-pointer transition">
                        <LogOut size={16}/> Sign Out
                      </button>
                    </div>

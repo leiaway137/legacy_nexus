@@ -22,7 +22,7 @@ function AuthCompatBridge({ children }: { children: React.ReactNode }) {
   // Format the NextAuth session into the exact shape the components expect (user.uid instead of user.id)
   const user = session?.user ? { 
     ...session.user, 
-    uid: session.user.id || session.user.email 
+    uid: (session.user as any).id || session.user.email 
   } : null;
 
   return (

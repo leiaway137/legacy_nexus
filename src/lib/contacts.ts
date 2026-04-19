@@ -1,4 +1,4 @@
-import { Contact } from "./firebase/db";
+import { Contact } from "./mongo/db";
 
 export interface ParsedContact {
   firstName: string;
@@ -117,7 +117,7 @@ export function correlateContacts(userId: string, imported: ParsedContact[], exi
                const cName = c.completeName.toLowerCase();
                const oName = c.originalName.toLowerCase();
                if (cName === fullNameStr || oName === fullNameStr) return true;
-               if (c.aliases.some(a => a.toLowerCase() === fullNameStr)) return true;
+               if (c.aliases.some((a: string) => a.toLowerCase() === fullNameStr)) return true;
                return false;
             });
         }
@@ -132,7 +132,7 @@ export function correlateContacts(userId: string, imported: ParsedContact[], exi
                 if (['father','mother','uncle','aunt','grandpa','grandma'].includes(oName)) return false;
                 
                 if (cName === impFirst || oName === impFirst) return true;
-                if (c.aliases.some(a => a.toLowerCase() === impFirst)) return true;
+                if (c.aliases.some((a: string) => a.toLowerCase() === impFirst)) return true;
                 
                 // If DB says "Peter Wayne" but import says "Peter"
                 if (cName && (cName.includes(fullNameStr) || fullNameStr.includes(cName))) return true;

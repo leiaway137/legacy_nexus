@@ -1,7 +1,7 @@
 import NextAuth from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import clientPromise from "@/lib/mongo/client"
-import { MongoDBAdapter } from "@next-auth/mongodb-adapter" // Optional if using basic JWT instead, but structurally clean
+
 
 export const authOptions = {
   // We use JWT for simple secure stateless sessions that easily proxy over Vercel Edge

@@ -14,6 +14,7 @@ function sanitizeMongo<T>(doc: any): T {
 // Type definitions to mirror the original Firebase structures
 export interface NotebookSource {
   _id?: ObjectId | string;
+  id: string;
   userId: string;
   fileName: string;
   fileSize: number;
@@ -26,6 +27,7 @@ export interface NotebookSource {
 
 export interface AudioPodcast {
   _id?: ObjectId | string;
+  id: string;
   userId: string;
   title: string;
   subject: string;
@@ -39,6 +41,7 @@ export interface AudioPodcast {
 
 export interface UserProfile {
   _id?: ObjectId | string;
+  id: string;
   userId: string;
   firstName?: string;
   middleName?: string;
@@ -65,6 +68,7 @@ export interface UserProfile {
 
 export interface Contact {
   _id?: ObjectId | string;
+  id: string;
   userId: string;
   originalName: string;
   completeName: string;
@@ -84,12 +88,14 @@ export interface Contact {
 
 export interface PersistentDashboardState extends DashboardOverview {
   _id?: ObjectId | string;
+  id: string;
   userId: string;
   processedSourceIds: string[];
 }
 
 export interface QuestionBankItem {
   _id?: ObjectId | string;
+  id: string;
   userId: string;
   text: string;
   source: 'dashboard' | 'gap_prompt';
@@ -253,15 +259,17 @@ export async function updateNotebookSourceIntelligence(documentId: string, intel
 /* =====================================================================
    PODCASTS
    ===================================================================== */
-export async function saveAudioPodcast(userId: string, podcast: Omit<AudioPodcast, 'id' | 'createdAt' | 'userId'>): Promise<string | null> {
+export async function saveAudioPodcast(userId: string, podcast: Omit<AudioPodcast, 'id' | 'createdAt' | 'userId'>): Promise<AudioPodcast | null> {
   try {
     const db = await getDb();
-    const res = await db.collection("podcasts").insertOne({
-      ...podcast,
-      userId,
-      createdAt: new Date()
-    });
-    return res.insertedId.toString();
+    const payload = { ...podcast, userId, createdAt: new Date() };
+    
+    const dbPayload = { ...payload };
+    delete (dbPayload as any).id;
+    delete (dbPayload as any)._id;
+
+    const result = await db.collection("legacy_podcasts").insertOne(dbPayload as any);
+    return { ...payload, id: result.insertedId.toString() } as AudioPodcast;
   } catch (e) {
     console.error("Failed to save podcast:", e);
     return null;
@@ -305,10 +313,14 @@ export async function saveContact(userId: string, contactData: Partial<Contact> 
       );
       return contactData.id;
     } else {
-      // Create new
-      const { id, ...cleanData } = contactData;
-      const res = await db.collection("legacy_contacts").insertOne({ ...cleanData, userId, updatedAt: new Date() });
-      return res.insertedId.toString();
+      const payload = { ...contactData, userId, updatedAt: new Date() };
+      
+      const dbPayload = { ...payload };
+      delete (dbPayload as any).id;
+      delete (dbPayload as any)._id;
+
+      const result = await db.collection("legacy_contacts").insertOne(dbPayload as any);
+      return result.insertedId.toString();
     }
   } catch (err) {
     console.error("Failed to save contact:", err);
@@ -489,14 +501,20 @@ export async function updateContactAccessTier(userId: string, contactId: string,
   }
 }
 
-export async function saveQuestionBankItem(userId: string, data: Partial<QuestionBankItem>): Promise<string | null> {
+export async function saveQuestionBankItem(userId: string, data: Partial<QuestionBankItem>): Promise<QuestionBankItem | null> {
   try {
     const db = await getDb();
     const dupCheck = await db.collection("legacy_questions").findOne({ userId, text: data.text });
-    if (dupCheck) return dupCheck._id.toString();
+    if (dupCheck) return { ...dupCheck, id: dupCheck._id.toString() } as QuestionBankItem;
 
-    const res = await db.collection("legacy_questions").insertOne({ ...data, userId, isAnswered: false, createdAt: new Date() });
-    return res.insertedId.toString();
+    const newItem = { ...data, userId, isAnswered: false, createdAt: new Date() };
+    
+    const dbPayload = { ...newItem };
+    delete (dbPayload as any).id;
+    delete (dbPayload as any)._id;
+
+    const result = await db.collection("legacy_questions").insertOne(dbPayload as any);
+    return { ...newItem, id: result.insertedId.toString() } as QuestionBankItem;
   } catch (err) { return null; }
 }
 
@@ -508,19 +526,23 @@ export async function fetchPendingBankQuestions(userId: string, limitCount: numb
       .sort({ createdAt: 1 })
       .limit(limitCount)
       .toArray();
-    return sanitizeMongo(docs.map((d: any) => ({ ...d, id: d._id.toString() } as unknown as QuestionBankItem)));
-  } catch (err) { return []; }
+    const questions = docs.map((d: any) => ({ ...d, id: d._id.toString() } as QuestionBankItem));
+    return sanitizeMongo<QuestionBankItem[]>(questions);
+  } catch (error) {
+    console.error("Failed to fetch pending bank questions:", error);
+    return [];
+  }
 }
 
-export async function markQuestionsAnswered(questionIds: string[]): Promise<boolean> {
+export async function markQuestionsAnswered(userId: string, questionIds: string[]): Promise<boolean> {
   try {
     const db = await getDb();
     const objectIds = questionIds.map(id => {
-        try { return new ObjectId(id); } catch(e) { return id; }
+      try { return new ObjectId(id); } catch(e) { return id; }
     });
-    // @ts-ignore
+    
     await db.collection("legacy_questions").updateMany(
-      { _id: { $in: objectIds } },
+      { userId, _id: { $in: objectIds as ObjectId[] } },
       { $set: { isAnswered: true } }
     );
     return true;

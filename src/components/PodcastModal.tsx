@@ -61,12 +61,13 @@ export function PodcastModal({ userId, onClose }: PodcastModalProps) {
           durationOption,
           transcript
         };
-        const id = await saveAudioPodcast(userId, newPodcast);
+        const savedPodcast = await saveAudioPodcast(userId, newPodcast);
         
-        const completePodcast = { ...newPodcast, id: id || Date.now().toString(), userId, createdAt: new Date() };
-        setPodcasts(prev => [completePodcast, ...prev]);
-        setActivePodcast(completePodcast);
-        setFocusArea("");
+        if (savedPodcast) {
+          setPodcasts(prev => [savedPodcast, ...prev]);
+          setActivePodcast(savedPodcast);
+          setFocusArea("");
+        }
       } else {
         alert("Failed to generate dialogue. Check the console.");
       }

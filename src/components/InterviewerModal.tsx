@@ -31,7 +31,7 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
 
   useEffect(() => {
     fetchPendingBankQuestions(userId, 5).then((items) => {
-       setPendingQuestions(items.map(item => ({id: item.id, text: item.text})));
+       setPendingQuestions(items.map(item => ({id: item.id!, text: item.text})));
     });
     fetchUserProfile(userId).then(profile => {
        if (profile && profile.trustScore) {
@@ -442,7 +442,7 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
     
     // Mark pending questions as answered so they rotate out of the queue
     if (pendingQuestions.length > 0) {
-       await markQuestionsAnswered(pendingQuestions.map(q => q.id));
+       await markQuestionsAnswered(userId, pendingQuestions.map(q => q.id!));
     }
     
     try {
