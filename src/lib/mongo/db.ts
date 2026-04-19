@@ -279,7 +279,7 @@ export async function saveAudioPodcast(userId: string, podcast: Omit<AudioPodcas
 export async function fetchAudioPodcasts(userId: string): Promise<AudioPodcast[]> {
   try {
     const db = await getDb();
-    const pods = await db.collection("podcasts").find({ userId }).sort({ createdAt: -1 }).toArray();
+    const pods = await db.collection("legacy_podcasts").find({ userId }).sort({ createdAt: -1 }).toArray();
     return sanitizeMongo(pods.map(p => ({ id: p._id.toString(), ...p } as any)));
   } catch (e) {
     console.error("Failed to fetch podcasts:", e);
@@ -360,6 +360,37 @@ export async function fetchUserProfile(userId: string): Promise<UserProfile | nu
     return sanitizeMongo(profile);
   } catch (error) {
     return null;
+  }
+}
+
+export async function deleteUserAccount(userId: string): Promise<boolean> {
+  try {
+    const db = await getDb();
+    let objectIdUserId;
+    try {
+        objectIdUserId = new ObjectId(userId);
+    } catch {
+        // Fallback for string-based IDs if standard ObjectId casting fails
+        objectIdUserId = userId;
+    }
+    
+    // Purge across ALL related MongoDB Collections
+    await db.collection("users").deleteOne({ _id: objectIdUserId as any });
+    await db.collection("user_profiles").deleteOne({ userId });
+    await db.collection("user_sources").deleteMany({ userId });
+    await db.collection("legacy_session_active").deleteOne({ userId });
+    await db.collection("legacy_dashboard_active").deleteOne({ userId });
+    await db.collection("legacy_stories").deleteOne({ userId });
+    await db.collection("legacy_podcasts").deleteMany({ userId });
+    await db.collection("legacy_contacts").deleteMany({ userId });
+    await db.collection("legacy_insights").deleteOne({ userId });
+    await db.collection("legacy_chats").deleteOne({ userId });
+    await db.collection("legacy_questions").deleteMany({ userId });
+    
+    return true;
+  } catch (error) {
+    console.error("Global Multi-Collection Cascade Deletion Error:", error);
+    return false;
   }
 }
 

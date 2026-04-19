@@ -5,7 +5,8 @@ import Link from "next/link";
 import { ArrowLeft, User, Mail, Shield, Sparkles, Save, Loader2, MapPin, Calendar, Users, Globe2, MessageSquare } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
-import { fetchUserProfile, updateUserProfile, type UserProfile } from "@/lib/mongo/db";
+import { fetchUserProfile, updateUserProfile, deleteUserAccount, type UserProfile } from "@/lib/mongo/db";
+import { signOut } from "next-auth/react";
 
 export default function ProfilePage() {
   const { user, loading } = useAuth();
@@ -14,6 +15,11 @@ export default function ProfilePage() {
   const [isFetching, setIsFetching] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
+  
+  // Deletion State
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -52,6 +58,21 @@ export default function ProfilePage() {
       setSaveMessage("Failed to update profile. Please try again.");
     }
     setIsSaving(false);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmationText !== "DELETE" || !user) return;
+    setIsDeleting(true);
+    setSaveMessage("");
+    
+    // Hard destruction call
+    const success = await deleteUserAccount(user.uid);
+    if (success) {
+      await signOut({ callbackUrl: "/" });
+    } else {
+      setSaveMessage("Failed to delete account. Please try again or contact support.");
+      setIsDeleting(false);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -236,6 +257,64 @@ export default function ProfilePage() {
               </div>
 
             </form>
+
+            {/* Danger Zone */}
+            <div className="mt-12 pt-8 border-t border-red-200 dark:border-red-900/30">
+              <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-2xl p-6">
+                <h3 className="text-lg font-bold text-red-600 dark:text-red-500 mb-2">Danger Zone</h3>
+                <p className="text-sm text-red-800/80 dark:text-red-400/80 mb-6 font-medium">Permanently delete your account and clear all archived transcripts, audio files, contexts, and structural data. This action cannot be undone.</p>
+                
+                {!isConfirmingDelete ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmingDelete(true)}
+                    className="px-6 py-2.5 bg-red-100 hover:bg-red-200 dark:bg-red-900/40 dark:hover:bg-red-900/60 text-red-700 dark:text-red-400 font-bold rounded-xl shadow-sm transition-colors"
+                  >
+                    Delete Account
+                  </button>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-red-200 dark:border-red-800">
+                      <label className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-2">
+                        Are you absolutely sure?
+                      </label>
+                      <p className="text-xs text-zinc-500 mb-3">
+                        Type <strong className="text-red-600">DELETE</strong> below to confirm permanent destruction of your vault.
+                      </p>
+                      <input 
+                        type="text" 
+                        value={deleteConfirmationText}
+                        onChange={(e) => setDeleteConfirmationText(e.target.value)}
+                        placeholder="DELETE"
+                        className="w-full px-4 py-2 border border-red-300 dark:border-red-700 rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-red-500 mb-3 font-mono text-zinc-900 dark:text-zinc-100"
+                      />
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          disabled={deleteConfirmationText !== "DELETE" || isDeleting}
+                          onClick={handleDeleteAccount}
+                          className="px-6 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold rounded-lg shadow-sm transition-all flex items-center gap-2"
+                        >
+                          {isDeleting ? <Loader2 className="animate-spin" size={16}/> : null}
+                          Confirm Purge
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isDeleting}
+                          onClick={() => {
+                            setIsConfirmingDelete(false);
+                            setDeleteConfirmationText("");
+                          }}
+                          className="px-4 py-2 bg-zinc-200 hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium rounded-lg transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
         
