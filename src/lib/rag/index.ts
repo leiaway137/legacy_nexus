@@ -280,30 +280,29 @@ export async function processTranscriptForRag(transcriptText: string): Promise<T
   return [];
 }
 
-export async function generatePodcastTranscript(transcriptContext: string, focusArea: string, durationOption: string): Promise<{speaker: "Host 1" | "Host 2", text: string}[]> {
+export async function generatePodcastTranscript(transcriptContext: string, focusArea: string, durationOption: string): Promise<{speaker: "Narrator", text: string}[]> {
   if (!transcriptContext.trim()) return [];
   
   // Approximate length targets based on durationOption (Short vs Long)
   // Short = ~3-5 mins audio (approx 500-800 words), Long = 10+ mins (approx 1500-2000 words)
   const lengthInstruction = durationOption.toLowerCase().includes("long") 
-    ? "aim for a long, deep-dive 10-15 minute discussion containing around 1500 to 2000 words. Dive deeply into specifics, tangents, and nuances." 
-    : "aim for a short, punchy 3-5 minute discussion containing around 500 to 800 words. Keep it focused and moving quickly.";
+    ? "aim for a long, deeply immersive 10-15 minute recollection containing around 1500 to 2000 words. Dive deeply into specifics, emotional tangents, and intimate nuances." 
+    : "aim for a short, impactful 3-5 minute recollection containing around 500 to 800 words. Keep it focused and moving quickly.";
 
   const prompt = `
-    You are an expert podcast production AI mimicking a highly popular, conversational "Deep Dive" podcast like NotebookLM's Audio Overview.
-    Based strictly on the source materials provided, write an engaging back-and-forth podcast transcript between two hosts: "Host 1" and "Host 2".
-    Host 1 is typically the primary driver/storyteller, and Host 2 is the inquisitive, amazed co-host reacting and asking excellent follow up questions.
+    You are an expert ghostwriter creating a deeply personal, first-person "Recollection" or audio memoir based strictly on the source materials provided.
+    The narrative should sound like a single person sitting down at a microphone and candidly recounting a specific memory or era of their life.
     
     CRITICAL PERSPECTIVE RULES:
-    - You are two EXTERNAL podcast hosts discussing a historical archive or interview transcript. 
-    - You MUST maintain a third-person, documentary perspective.
-    - DO NOT adopt the first-person perspective of the narrator in the text. NEVER say "my father," "my grandfather," "I remember," or "when I was younger." 
-    - Translate all first-person accounts into the third-person. For example, if the text says "my grandfather grew up in Taiwan," you must say "Their grandfather grew up in Taiwan," or deduce the subject's name and say "Albert's grandfather grew up in Taiwan."
+    - You must write entirely in the FIRST-PERSON narrative perspective ("I", "me", "my family", "when I was younger").
+    - DO NOT write a multi-person script. The entire output must be spoken by one single "Narrator".
+    - Adopt the persona, tone, and worldview of the subject described in the source materials.
+    - Write it to be spoken aloud. Use natural conversational phrasing, slight pauses, and reflective storytelling mechanics.
     
-    The user has requested the podcast to specifically focus on the following subject: "${focusArea}".
+    The user has requested this recollection to specifically focus on the following subject: "${focusArea}".
     Please ${lengthInstruction}
     
-    Make the dialogue extremely natural. Use filler words appropriately (like "wow", "exactly", "it's crazy that...").
+    Make the monologue extremely natural and intimate. 
     Do NOT output raw markdown styling. Do NOT include sound effects or stage directions like [Laughter] or [Sigh]. Keep it purely spoken text.
     
     Sources context:
@@ -318,18 +317,18 @@ export async function generatePodcastTranscript(transcriptContext: string, focus
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
-        description: "The sequential dialogue lines of the podcast.",
+        description: "The sequential monologue lines of the recollection.",
         items: {
           type: Type.OBJECT,
           properties: {
             speaker: {
               type: Type.STRING,
-              description: "Must be exactly 'Host 1' or 'Host 2'",
-              enum: ["Host 1", "Host 2"]
+              description: "Must be exactly 'Narrator'",
+              enum: ["Narrator"]
             },
             text: {
               type: Type.STRING,
-              description: "The spoken dialogue line for the host. Plain text."
+              description: "The spoken monologue line for the narrator. Plain text."
             }
           },
           required: ["speaker", "text"]
@@ -342,7 +341,7 @@ export async function generatePodcastTranscript(transcriptContext: string, focus
     let raw = response.text;
     if (typeof raw === "function") raw = (raw as any)();
     raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
-    return JSON.parse(raw) as {speaker: "Host 1" | "Host 2", text: string}[];
+    return JSON.parse(raw) as {speaker: "Narrator", text: string}[];
   }
   return [];
 }

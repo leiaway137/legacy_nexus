@@ -2,6 +2,8 @@
 
 import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive, extractDemographicsFromTranscript, generateSandersonAdaptation, generatePodcastTranscript, generateAnonymizedStories, generateUniversalCastMapping } from "@/lib/rag";
 import { getPineconeIndex } from "@/lib/pinecone/client";
+import { fetchUserProfile } from "@/lib/mongo/db";
+import { decryptString } from "@/lib/encryption";
 // @ts-ignore - Bypass Turbopack static ESM export resolution
 import pdfParseModule from "pdf-parse/lib/pdf-parse.js";
 
@@ -30,7 +32,7 @@ export async function generateQuestionsAction(context: string): Promise<string[]
   }
 }
 
-export async function generatePodcastTranscriptAction(context: string, focusArea: string, durationOption: string): Promise<{speaker: "Host 1" | "Host 2", text: string}[]> {
+export async function generatePodcastTranscriptAction(context: string, focusArea: string, durationOption: string): Promise<{speaker: "Narrator", text: string}[]> {
   try {
     return await generatePodcastTranscript(context, focusArea, durationOption);
   } catch (error) {
@@ -273,9 +275,31 @@ export async function generateUniversalCastMappingAction(stories: HighFidelitySt
   }
 }
 
-export async function generateElevenLabsAudioAction(text: string, voiceId: string): Promise<string | null> {
-  if (!text || !voiceId) return null;
-  const apiKey = process.env.ELEVENLABS_API_KEY;
+export async function generateElevenLabsAudioAction(userId: string, text: string, defaultVoiceId: string): Promise<string | null> {
+  if (!text || !defaultVoiceId) return null;
+  
+  let apiKey = process.env.ELEVENLABS_API_KEY;
+  let voiceId = defaultVoiceId;
+
+  // Attempt to use custom key and voice securely from the encrypted DB vault
+  if (userId) {
+     const profile = await fetchUserProfile(userId);
+     if (profile && profile.voiceProvider === "elevenlabs" && profile.hasTtsKeySaved) {
+        if (profile.ttsVoiceId) voiceId = profile.ttsVoiceId;
+        
+        // Next.js Server Components bypass the API payload scrubbing. If we need to read the raw vault,
+        // we should query the DB directly, as fetchUserProfile intentionally destroys the encrypted payload!
+        // To keep it simple, we import MongoDB logic inline
+        const { getDb } = require("@/lib/mongo/db");
+        const db = await getDb();
+        const rawProfile = await db.collection("user_profiles").findOne({ userId });
+        if (rawProfile && rawProfile.encryptedTtsApiKey) {
+           const decryptedKey = decryptString(rawProfile.encryptedTtsApiKey);
+           if (decryptedKey) apiKey = decryptedKey;
+        }
+     }
+  }
+
   if (!apiKey) {
     console.error("ElevenLabs API Key not found.");
     return null;
@@ -309,6 +333,66 @@ export async function generateElevenLabsAudioAction(text: string, voiceId: strin
     return buffer.toString('base64');
   } catch (error) {
     console.error("ElevenLabs API Request Error:", error);
+    return null;
+  }
+}
+
+export async function generateResembleAudioAction(userId: string, text: string): Promise<string | null> {
+  if (!text || !userId) return null;
+  
+  let apiKey = process.env.RESEMBLE_API_KEY;
+  let projectId = "";
+  let voiceId = "";
+  
+  const { getDb } = require("@/lib/mongo/db");
+  const db = await getDb();
+  const rawProfile = await db.collection("user_profiles").findOne({ userId });
+  
+  if (rawProfile && rawProfile.voiceProvider === "resemble" && rawProfile.encryptedTtsApiKey) {
+     if (rawProfile.ttsVoiceId) voiceId = rawProfile.ttsVoiceId;
+     if (rawProfile.resembleProjectId) projectId = rawProfile.resembleProjectId;
+     
+     const decryptedKey = decryptString(rawProfile.encryptedTtsApiKey);
+     if (decryptedKey) apiKey = decryptedKey;
+  }
+  
+  if (!apiKey || !projectId || !voiceId) {
+    console.error("Resemble configuration incomplete.");
+    return null;
+  }
+  
+  try {
+    const response = await fetch(`https://app.resemble.ai/api/v2/projects/${projectId}/clips`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        body: text,
+        voice_uuid: voiceId,
+        is_public: false,
+        is_archived: false,
+        title: `Legacy Nexus Recollection`
+      })
+    });
+    
+    if (!response.ok) {
+      console.error("Resemble TTS failed:", await response.text());
+      return null;
+    }
+    
+    const data = await response.json();
+    if (data.item && data.item.audio_src) {
+        // Fetch the generated authenticated URL's buffer
+        const audioFetch = await fetch(data.item.audio_src);
+        const arrayBuffer = await audioFetch.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        return buffer.toString('base64');
+    }
+    return null;
+  } catch (error) {
+    console.error("Resemble API Request Error:", error);
     return null;
   }
 }

@@ -3,6 +3,7 @@
 import clientPromise from "./client";
 import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview, type DocumentIntelligence } from "@/lib/rag";
 import { ObjectId } from "mongodb";
+import { encryptString } from "@/lib/encryption";
 
 // Global Serialization Helper for Next.js Server Components
 // Prevents MongoDB ObjectId and raw Date classes from crashing Next.js hydration boundaries
@@ -32,8 +33,9 @@ export interface AudioPodcast {
   title: string;
   subject: string;
   durationOption: string;
+  voiceProvider?: string;
   transcript: {
-    speaker: "Host 1" | "Host 2";
+    speaker: "Narrator" | string;
     text: string;
   }[];
   createdAt: Date | any;
@@ -58,6 +60,13 @@ export interface UserProfile {
   userOverrides?: string[];
   trustScore?: number;
   privacyLevel?: "private" | "family" | "public_anonymized" | "public_transparent";
+
+  // TTS Secure Settings Integrations
+  voiceProvider?: "native" | "elevenlabs" | "resemble";
+  ttsVoiceId?: string;
+  encryptedTtsApiKey?: string;
+  hasTtsKeySaved?: boolean; // Synthetic variable returned to client instead of the raw key
+  resembleProjectId?: string;
   publicSlug?: string;
   familyAccessEmails?: string[];
   isAnonymizedBuildReady?: boolean;
@@ -357,6 +366,11 @@ export async function fetchUserProfile(userId: string): Promise<UserProfile | nu
   try {
     const db = await getDb();
     const profile = await db.collection("user_profiles").findOne({ userId });
+    if (profile) {
+      // SCRUB THE SECRETS: Never send the encrypted symmetric blocks back to the client UI
+      profile.hasTtsKeySaved = !!profile.encryptedTtsApiKey;
+      delete profile.encryptedTtsApiKey;
+    }
     return sanitizeMongo(profile);
   } catch (error) {
     return null;
@@ -410,6 +424,11 @@ export async function updateUserProfile(userId: string, data: Partial<UserProfil
     const db = await getDb();
     const payload = { ...data, updatedAt: new Date() };
     delete (payload as any)._id; // Never update _id
+    
+    // Encrypt the API key before pushing to the DB at-rest if the UI provided one
+    if (payload.encryptedTtsApiKey) {
+       payload.encryptedTtsApiKey = encryptString(payload.encryptedTtsApiKey);
+    }
     
     await db.collection("user_profiles").updateOne(
       { userId },

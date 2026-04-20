@@ -345,7 +345,7 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
     
     // Attempt to fetch ultra-realistic ElevenLabs TTS
     try {
-        const base64Audio = await generateElevenLabsAudioAction(textToSpeak, selectedVoice);
+        const base64Audio = await generateElevenLabsAudioAction(userId, textToSpeak, selectedVoice);
         
         if (base64Audio) {
             const dataUrl = `data:audio/mp3;base64,${base64Audio}`;

@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { X, Play, Square, Loader2, Save, FileAudio, RefreshCw, AudioLines } from "lucide-react";
-import { generatePodcastTranscriptAction } from "@/app/actions";
-import { AudioPodcast, fetchAudioPodcasts, saveAudioPodcast, fetchUserSources } from "@/lib/mongo/db";
+import { generatePodcastTranscriptAction, generateElevenLabsAudioAction, generateResembleAudioAction } from "@/app/actions";
+import { AudioPodcast, fetchAudioPodcasts, saveAudioPodcast, fetchUserSources, fetchUserProfile, updateUserProfile, UserProfile } from "@/lib/mongo/db";
+import { Settings } from "lucide-react";
 
 interface PodcastModalProps {
   userId: string;
@@ -19,22 +20,42 @@ export function PodcastModal({ userId, onClose }: PodcastModalProps) {
   const [focusArea, setFocusArea] = useState("");
   const [durationOption, setDurationOption] = useState("Short (~3-5 mins)");
   
+  // User Profile Voice Settings
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [voiceProvider, setVoiceProvider] = useState<"native" | "elevenlabs" | "resemble">("native");
+  const [ttsVoiceId, setTtsVoiceId] = useState("");
+  const [ttsApiKey, setTtsApiKey] = useState("");
+  const [resembleProjectId, setResembleProjectId] = useState("");
+
   // Audio State
   const [isPlaying, setIsPlaying] = useState(false);
   const isPlayingRef = useRef(false);
   const [currentLineIndex, setCurrentLineIndex] = useState(-1);
   const synthRef = useRef<SpeechSynthesis | null>(null);
+  const currentApiAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       synthRef.current = window.speechSynthesis;
     }
     loadExistingPodcasts();
+    loadProfile();
     return () => {
       // Cleanup synth
       if (synthRef.current) synthRef.current.cancel();
+      if (currentApiAudioRef.current) currentApiAudioRef.current.pause();
     };
   }, []);
+
+  const loadProfile = async () => {
+     const p = await fetchUserProfile(userId);
+     if (p) {
+        setProfile(p);
+        setVoiceProvider((p.voiceProvider as any) || "native");
+        setTtsVoiceId(p.ttsVoiceId || "");
+        setResembleProjectId(p.resembleProjectId || "");
+     }
+  };
 
   const loadExistingPodcasts = async () => {
     const list = await fetchAudioPodcasts(userId);
@@ -46,11 +67,18 @@ export function PodcastModal({ userId, onClose }: PodcastModalProps) {
     setIsGenerating(true);
     
     try {
-      // 1. Fetch sources to build context
+      // 1. Fetch sources & profile settings
       const sources = await fetchUserSources(userId);
-      const context = sources.map(s => s.textContent).join("\n\n").substring(0, 80000); // 80k character limit heuristic
+      const context = sources.map(s => s.textContent).join("\n\n").substring(0, 80000); 
+
+      // 1.5 Securely update User Profile TTS preferences Before Generation
+      const updates: Partial<UserProfile> = { voiceProvider, ttsVoiceId, resembleProjectId };
+      if (ttsApiKey) updates.encryptedTtsApiKey = ttsApiKey; 
+      await updateUserProfile(userId, updates);
+      await loadProfile(); // Pull fresh profile confirming key save state
+      setTtsApiKey(""); // Purge the unencrypted UI state
       
-      // 2. Generate transcript
+      // 2. Generate transcript (First-Person Recollection)
       const transcript = await generatePodcastTranscriptAction(context, focusArea, durationOption);
       
       if (transcript && transcript.length > 0) {
@@ -59,6 +87,7 @@ export function PodcastModal({ userId, onClose }: PodcastModalProps) {
           title: `Deep Dive: ${focusArea}`,
           subject: focusArea,
           durationOption,
+          voiceProvider,
           transcript
         };
         const savedPodcast = await saveAudioPodcast(userId, newPodcast);
@@ -92,6 +121,19 @@ export function PodcastModal({ userId, onClose }: PodcastModalProps) {
     return { host1, host2 };
   };
 
+  const playBase64Audio = (base64: string, onEnded: () => void) => {
+       const u8 = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+       const blob = new Blob([u8], { type: 'audio/mpeg' });
+       const url = URL.createObjectURL(blob);
+       const audioContext = new Audio(url);
+       audioContext.play();
+       audioContext.onended = () => {
+           URL.revokeObjectURL(url);
+           if (isPlayingRef.current) onEnded();
+       };
+       currentApiAudioRef.current = audioContext;
+  };
+
   const playLine = (index: number) => {
     if (!activePodcast || !synthRef.current) return;
     if (index >= activePodcast.transcript.length) {
@@ -103,34 +145,40 @@ export function PodcastModal({ userId, onClose }: PodcastModalProps) {
 
     setCurrentLineIndex(index);
     const line = activePodcast.transcript[index];
-    const utterance = new SpeechSynthesisUtterance(line.text);
     
-    const { host1, host2 } = getVoices();
-    
-    if (line.speaker === "Host 1" && host1) {
-      utterance.voice = host1;
-      // utterance.pitch = 0.9;
-    } else if (line.speaker === "Host 2" && host2) {
-      utterance.voice = host2;
-      // utterance.pitch = 1.1;
-    }
+    // Halt prior playbacks 
+    synthRef.current.cancel();
+    if (currentApiAudioRef.current) currentApiAudioRef.current.pause();
 
-    utterance.rate = 1.05; // Slightly faster for podcast vibe
-    
-    utterance.onend = () => {
-      // Proceed to next line ONLY if still playing (wasn't stopped manually)
-      if (isPlayingRef.current) {
-         playLine(index + 1);
-      }
-    };
-    
-    synthRef.current.speak(utterance);
+    const providerToUse = activePodcast.voiceProvider || "native";
+
+    if (providerToUse === "native") {
+        const utterance = new SpeechSynthesisUtterance(line.text);
+        const { host1 } = getVoices();
+        if (host1) utterance.voice = host1;
+        utterance.rate = 1.05; 
+        utterance.onend = () => {
+          if (isPlayingRef.current) playLine(index + 1);
+        };
+        synthRef.current.speak(utterance);
+    } else if (providerToUse === "elevenlabs") {
+        generateElevenLabsAudioAction(userId, line.text, ttsVoiceId || profile?.ttsVoiceId || "").then(b64 => {
+            if (!b64 || !isPlayingRef.current) return setIsPlaying(false);
+            playBase64Audio(b64, () => playLine(index + 1));
+        });
+    } else if (providerToUse === "resemble") {
+        generateResembleAudioAction(userId, line.text).then(b64 => {
+            if (!b64 || !isPlayingRef.current) return setIsPlaying(false);
+            playBase64Audio(b64, () => playLine(index + 1));
+        });
+    }
   };
 
   const togglePlayback = () => {
     if (!activePodcast) return;
     if (isPlaying) {
       synthRef.current?.cancel();
+      if (currentApiAudioRef.current) currentApiAudioRef.current.pause();
       setIsPlaying(false);
       isPlayingRef.current = false;
     } else {
@@ -143,6 +191,7 @@ export function PodcastModal({ userId, onClose }: PodcastModalProps) {
   
   useEffect(() => {
      if (synthRef.current) synthRef.current.cancel();
+     if (currentApiAudioRef.current) currentApiAudioRef.current.pause();
      setIsPlaying(false);
      isPlayingRef.current = false;
      setCurrentLineIndex(-1);
@@ -181,6 +230,56 @@ export function PodcastModal({ userId, onClose }: PodcastModalProps) {
                   <option>Short (~3-5 mins)</option>
                   <option>Long (~10-15 mins)</option>
                </select>
+
+               <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2 mt-4 block flex justify-between">
+                  <span>Voice Provider</span>
+               </label>
+               <select 
+                  className="w-full bg-zinc-100 dark:bg-zinc-900 border-transparent focus:border-blue-500 focus:bg-white dark:focus:bg-black rounded-lg px-3 py-2 text-sm mb-4"
+                  value={voiceProvider}
+                  onChange={e => setVoiceProvider(e.target.value as any)}
+               >
+                  <option value="native">Native Browser (Free)</option>
+                  <option value="elevenlabs">ElevenLabs Clone (Pro)</option>
+                  <option value="resemble">Resemble.ai Clone (Pro)</option>
+               </select>
+
+               {voiceProvider !== "native" && (
+                 <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 p-3 rounded-xl mb-4 space-y-3">
+                    <div>
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-blue-500 mb-1 block">Voice ID</label>
+                       <input 
+                          type="text"
+                          placeholder="e.g. jBPbJj..."
+                          className="w-full bg-white dark:bg-zinc-950 border border-blue-200 dark:border-blue-800 rounded-lg px-2 py-1 text-xs"
+                          value={ttsVoiceId}
+                          onChange={e => setTtsVoiceId(e.target.value)}
+                       />
+                    </div>
+                    {voiceProvider === "resemble" && (
+                      <div>
+                         <label className="text-[10px] font-bold uppercase tracking-widest text-blue-500 mb-1 block">Project UUID</label>
+                         <input 
+                            type="text"
+                            placeholder="e.g. prj_123..."
+                            className="w-full bg-white dark:bg-zinc-950 border border-blue-200 dark:border-blue-800 rounded-lg px-2 py-1 text-xs"
+                            value={resembleProjectId}
+                            onChange={e => setResembleProjectId(e.target.value)}
+                         />
+                      </div>
+                    )}
+                    <div>
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-blue-500 mb-1 block">Authentication</label>
+                       <input 
+                          type="password"
+                          placeholder={profile?.hasTtsKeySaved ? "•••••••• (Key AES-Secured in Vault)" : "Platform API Key"}
+                          className="w-full bg-white dark:bg-zinc-950 border border-blue-200 dark:border-blue-800 rounded-lg px-2 py-1 text-xs placeholder:text-blue-300"
+                          value={ttsApiKey}
+                          onChange={e => setTtsApiKey(e.target.value)}
+                       />
+                    </div>
+                 </div>
+               )}
 
                <button 
                   onClick={handleGenerate}
@@ -238,24 +337,24 @@ export function PodcastModal({ userId, onClose }: PodcastModalProps) {
                   <div className="flex-1 overflow-y-auto p-8 space-y-6">
                      {activePodcast.transcript.map((line, idx) => {
                         const isActiveLine = currentLineIndex === idx;
-                        const isHost1 = line.speaker === "Host 1";
                         return (
                            <div 
                               key={idx} 
                               onClick={() => {
                                  setCurrentLineIndex(idx);
                                  synthRef.current?.cancel();
+                                 if (currentApiAudioRef.current) currentApiAudioRef.current.pause();
                                  setIsPlaying(true);
                                  isPlayingRef.current = true;
                                  playLine(idx);
                               }}
                               className={`flex gap-4 p-4 rounded-xl transition cursor-pointer ${isActiveLine ? 'bg-blue-50 dark:bg-blue-900/20 ring-1 ring-blue-500/50' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/50'}`}
                            >
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${isHost1 ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-700'}`}>
-                                 {isHost1 ? 'H1' : 'H2'}
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 bg-blue-100 text-blue-700`}>
+                                 N
                               </div>
                               <div className="flex flex-col">
-                                 <span className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${isHost1 ? 'text-amber-600' : 'text-indigo-600'}`}>{line.speaker}</span>
+                                 <span className={`text-[10px] font-bold uppercase tracking-widest mb-1 text-blue-600`}>NARRATOR</span>
                                  <p className={`text-base leading-relaxed ${isActiveLine ? 'text-zinc-900 dark:text-white font-medium' : 'text-zinc-600 dark:text-zinc-400'}`}>
                                     {line.text}
                                  </p>
