@@ -121,16 +121,19 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
             audioRef.current.src = "";
         }
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
           mediaRecorderRef.current.stop();
+        }
+        if (mediaRecorderRef.current && mediaRecorderRef.current.stream) {
           mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
         }
-        if (isolatedMediaRecorderRef.current && (isolatedMediaRecorderRef.current.state === "recording" || isolatedMediaRecorderRef.current.state === "paused")) {
+        if (isolatedMediaRecorderRef.current && isolatedMediaRecorderRef.current.state !== "inactive") {
           if (isolatedMediaRecorderRef.current.state === "recording") {
              setIsolatedDurationSecs(prev => prev + (Date.now() - isolatedRecordingStartRef.current) / 1000);
           }
           isolatedMediaRecorderRef.current.stop();
         }
+        window.speechSynthesis.cancel();
       };
     } else {
       setMicError("Browser does not support Speech Recognition. Please use Chrome.");
@@ -237,16 +240,19 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
   };
 
   const stopSessionRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.stream) {
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
     }
-    if (isolatedMediaRecorderRef.current && (isolatedMediaRecorderRef.current.state === "recording" || isolatedMediaRecorderRef.current.state === "paused")) {
+    if (isolatedMediaRecorderRef.current && isolatedMediaRecorderRef.current.state !== "inactive") {
       if (isolatedMediaRecorderRef.current.state === "recording") {
          setIsolatedDurationSecs(prev => prev + (Date.now() - isolatedRecordingStartRef.current) / 1000);
       }
       isolatedMediaRecorderRef.current.stop();
     }
+    window.speechSynthesis.cancel();
   };
 
   const toggleMic = () => {

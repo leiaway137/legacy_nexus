@@ -138,7 +138,11 @@ export default function StoriesPage() {
   const [selectedContactAliasId, setSelectedContactAliasId] = useState("");
   const [isSavingCorrection, setIsSavingCorrection] = useState(false);
 
-  const handleSelection = () => {
+  const handleSelection = (e: any) => {
+     if (e?.target?.closest && e.target.closest('.correction-popup')) {
+        return;
+     }
+
      const selection = window.getSelection();
      if (selection && selection.toString().trim() !== "") {
         const text = selection.toString().trim();
@@ -151,8 +155,8 @@ export default function StoriesPage() {
               x: rect.left + rect.width / 2,
               y: Math.max(rect.top - 10, 40)
            });
-        } catch (e) {
-           console.error(e);
+        } catch (err) {
+           console.error(err);
         }
      } else {
         setSelectionContext(null);
@@ -160,8 +164,8 @@ export default function StoriesPage() {
   };
 
   useEffect(() => {
-     document.addEventListener("selectionchange", handleSelection);
-     return () => document.removeEventListener("selectionchange", handleSelection);
+     document.addEventListener("mouseup", handleSelection);
+     return () => document.removeEventListener("mouseup", handleSelection);
   }, []);
 
   const submitGeneralCorrection = async () => {
@@ -830,6 +834,7 @@ export default function StoriesPage() {
                                  onClick={() => {
                                     setActiveGapPrompt(selectedStory.gapPrompt || "");
                                     setIsInterviewerOpen(true);
+                                    setSelectedStory(null);
                                  }}
                                  className="self-start text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:scale-95 transition-transform px-4 py-2 rounded-full shadow-md"
                                >
@@ -993,7 +998,7 @@ export default function StoriesPage() {
              initial={{ opacity: 0, y: 10, scale: 0.95 }}
              animate={{ opacity: 1, y: 0, scale: 1 }}
              exit={{ opacity: 0, y: 5, scale: 0.95 }}
-             className="fixed z-[9999] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-2xl p-4 w-[380px]"
+             className="correction-popup fixed z-[9999] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-2xl p-4 w-[380px]"
              style={{ left: Math.min(selectionContext.x, window.innerWidth - 400), top: selectionContext.y + 20 }}
           >
             <div className="flex items-center justify-between mb-3 border-b border-zinc-100 dark:border-zinc-800 pb-2">
