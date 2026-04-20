@@ -162,7 +162,7 @@ export default function Home() {
   }, [chatMessages, isChatting]);
 
   useEffect(() => {
-    if (user) {
+    if (user?.uid) {
       hydrateDashboardState();
       
       // Check onboarding
@@ -176,7 +176,7 @@ export default function Home() {
           }
       });
     }
-  }, [user]);
+  }, [user?.uid]);
 
   const hydrateDashboardState = async () => {
     if (!user) return;
@@ -396,8 +396,6 @@ export default function Home() {
             setDashboardProgress(null);
             return; 
         }
-
-        setSynopsis("Iterating over new additions to compile Legacy Overview...");
         
         let processedCount = 0;
         const totalDocs = unprocessedFiles.length;
@@ -835,12 +833,6 @@ export default function Home() {
 
           <div className="flex-1 overflow-y-auto px-8 py-10 pb-40 scroll-smooth">
              
-             {isProcessing ? (
-               <div className="flex flex-col items-center justify-center h-full text-zinc-400 space-y-4">
-                 <Loader2 size={32} className="animate-spin text-blue-500" />
-                 <p className="text-sm font-medium animate-pulse">Reading sources & generating synopsis...</p>
-               </div>
-             ) : (
                <>
                  {/* Synopsis Block */}
                  {(synopsis || chunks.length > 0) && (
@@ -919,7 +911,6 @@ export default function Home() {
                    </div>
                  )}
                </>
-             )}
 
           </div>
 
@@ -930,13 +921,13 @@ export default function Home() {
                   type="text" 
                   placeholder="Ask any question about the sources..." 
                   className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-zinc-400"
-                  disabled={sources.length === 0 || isProcessing || isChatting}
+                  disabled={sources.length === 0 || isChatting}
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                 />
                 <button 
                   type="submit"
-                  disabled={sources.length === 0 || isProcessing || isChatting || !chatInput.trim()} 
+                  disabled={sources.length === 0 || isChatting || !chatInput.trim()} 
                   className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center disabled:opacity-50 transition"
                 >
                   <ArrowRight size={16}/>

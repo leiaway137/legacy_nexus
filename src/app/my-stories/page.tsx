@@ -61,13 +61,18 @@ export default function MyStoriesPage() {
   }, [activeStory?.id]);
   useEffect(() => {
     async function load() {
-      if (!user) return;
+      if (!user?.uid) return;
       try {
         const cached = await fetchHighFidelityStories(user.uid);
         // Sort chronologically
         const sorted = [...cached].sort((a, b) => (ERA_ORDER[a.era] || 99) - (ERA_ORDER[b.era] || 99));
         setStories(sorted);
-        if (sorted.length > 0) setActiveStory(sorted[0]);
+        setActiveStory(prev => {
+          if (prev && sorted.some(s => s.id === prev.id)) {
+            return sorted.find(s => s.id === prev.id) || prev;
+          }
+          return sorted.length > 0 ? sorted[0] : null;
+        });
       } catch (err) {
         console.error(err);
       } finally {
@@ -75,7 +80,7 @@ export default function MyStoriesPage() {
       }
     }
     load();
-  }, [user]);
+  }, [user?.uid]);
 
   // Group stories by Era for the Table of Contents
   const groupedStories = stories.reduce((acc, story) => {
