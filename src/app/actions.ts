@@ -32,12 +32,12 @@ export async function generateQuestionsAction(context: string): Promise<string[]
   }
 }
 
-export async function generatePodcastTranscriptAction(context: string, focusArea: string, durationOption: string): Promise<{speaker: "Narrator", text: string}[]> {
+export async function generatePodcastTranscriptAction(context: string, focusArea: string, durationOption: string): Promise<any> {
   try {
     return await generatePodcastTranscript(context, focusArea, durationOption);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to generate podcast:", error);
-    return [];
+    return { error: error.message || String(error) };
   }
 }
 

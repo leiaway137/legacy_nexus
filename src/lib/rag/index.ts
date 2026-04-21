@@ -341,9 +341,13 @@ export async function generatePodcastTranscript(transcriptContext: string, focus
     let raw = response.text;
     if (typeof raw === "function") raw = (raw as any)();
     raw = raw.replace(/^```(?:json)?\n?/i, '').replace(/```\n?$/i, '').trim();
-    return JSON.parse(raw) as {speaker: "Narrator", text: string}[];
+    try {
+      return JSON.parse(raw) as {speaker: "Narrator", text: string}[];
+    } catch (e: any) {
+      throw new Error("Failed to parse AI output into script format: " + e.message);
+    }
   }
-  return [];
+  throw new Error("No response text constructed from AI (Possible Safety Filter or timeout).");
 }
 
 export async function generateSynopsis(transcriptContext: string): Promise<string> {

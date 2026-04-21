@@ -69,6 +69,12 @@ export function PodcastModal({ userId, onClose }: PodcastModalProps) {
     try {
       // 1. Fetch sources & profile settings
       const sources = await fetchUserSources(userId);
+      if (sources.length === 0) {
+        alert("You must upload or create some legacy documents first before generating a podcast.");
+        setIsGenerating(false);
+        return;
+      }
+      
       const context = sources.map(s => s.textContent).join("\n\n").substring(0, 80000); 
 
       // 1.5 Securely update User Profile TTS preferences Before Generation
@@ -81,6 +87,12 @@ export function PodcastModal({ userId, onClose }: PodcastModalProps) {
       // 2. Generate transcript (First-Person Recollection)
       const transcript = await generatePodcastTranscriptAction(context, focusArea, durationOption);
       
+      if (transcript && transcript.error) {
+        alert("Generation Error: " + transcript.error);
+        setIsGenerating(false);
+        return;
+      }
+
       if (transcript && transcript.length > 0) {
         // 3. Save to DB
         const newPodcast: Omit<AudioPodcast, 'id' | 'createdAt' | 'userId'> = {
