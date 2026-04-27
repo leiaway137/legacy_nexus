@@ -1,0 +1,52 @@
+{
+  "Navigation": {
+    "home": "首页",
+    "login": "登录",
+    "logout": "登出",
+    "legacy": "传承",
+    "profile": "个人档案"
+  },
+  "Index": {
+    "title": "欢迎来到 Legacy Nexus",
+    "description": "为子孙后代保存您的故事。"
+  },
+  "Dashboard": {
+    "sources": "文档来源",
+    "vault": "云端文件库",
+    "uploadingToCloud": "正在上传至云端...",
+    "addSources": "添加文档",
+    "searchSources": "搜索文档...",
+    "all": "全部",
+    "pdfs": "PDF文件",
+    "text": "纯文本",
+    "cloudResources": "云端资源",
+    "sourceVault": "源码库",
+    "documentsManaged": "个文档已管理",
+    "wisdomTags": "智慧标签",
+    "searchTags": "搜索标签...",
+    "noTagsMatchSearch": "没有匹配的标签。"
+  },
+  "Header": {
+    "workspace": "工作区",
+    "share": "分享",
+    "settings": "设置",
+    "dashboard": "控制台",
+    "profile": "个人档案",
+    "addressBook": "通讯录",
+    "timeline": "时间线",
+    "legacyProgress": "传承进度",
+    "myStories": "我的故事",
+    "signOut": "退出登录"
+  },
+  "Chat": {
+    "title": "对话",
+    "saveToNote": "保存为笔记",
+    "legacyOverview": "传承总览",
+    "addSourceToBegin": "添加来源以开始生成内容。",
+    "askQuestionPlaceholder": "提出任何关于来源的问题...",
+    "disclaimer": "Legacy Nexus 可能会犯错。请务必与家人核实故事。",
+    "aiDiscrepancy": "发现 AI 差异？",
+    "explainTruthPlaceholder": "向 AI 解释实际真相，以防再次犯错...",
+    "overrideMemory": "覆盖 AI 记忆"
+  }
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, embedStoriesToPineconeAction, deletePineconeSourceAction, deleteAllPineconeResourcesAction, recompileStoriesWithContactsAction, reduceDashboardOverviewAction } from "./actions";
+import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, embedStoriesToPineconeAction, deletePineconeSourceAction, deleteAllPineconeResourcesAction, recompileStoriesWithContactsAction, reduceDashboardOverviewAction } from "../actions";
 import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, saveQuestionBankItem, deleteAllUserContacts, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/mongo/db";
 import { useBackgroundJobs } from "@/components/BackgroundJobProvider";
 import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview } from "@/lib/rag";
@@ -14,7 +14,7 @@ import { LoginModule } from "@/components/LoginModule";
 import { InterviewerModal } from "@/components/InterviewerModal";
 import { useOnboarding } from "@/components/OnboardingProvider";
 import { PodcastModal } from "@/components/PodcastModal";
-
+import { useTranslations } from 'next-intl';
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ#".split('');
 
@@ -26,6 +26,8 @@ export interface UploadProgressState {
 }
 
 export default function Home() {
+  const t = useTranslations('Dashboard');
+  const tChat = useTranslations('Chat');
   const { user, loading } = useAuth();
   const { startTour, checkTourReady } = useOnboarding();
   const { jobs, startJob } = useBackgroundJobs();
@@ -658,14 +660,14 @@ export default function Home() {
         <div className="col-span-3 bg-white/60 dark:bg-zinc-900/40 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full overflow-hidden">
           <div className="p-4 flex items-center justify-between sticky top-0 bg-white/60 dark:bg-zinc-900/40 backdrop-blur z-10 border-b border-zinc-100 dark:border-zinc-800/50">
             <h2 className="text-[15px] font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-2">
-              Sources
+              {t('sources')}
             </h2>
             <button 
               id="vault-btn"
               onClick={() => setShowVault(!showVault)}
               className="text-xs bg-amber-50 text-amber-600 hover:bg-amber-100 px-2 py-1 rounded-md font-bold transition flex items-center gap-1"
             >
-              <BookOpen size={12}/> Vault ({history.length})
+              <BookOpen size={12}/> {t('vault')} ({history.length})
             </button>
           </div>
 
@@ -673,7 +675,7 @@ export default function Home() {
             {/* Native Auto-upload Label */}
             <label id="add-source-btn" className={`flex items-center justify-center gap-2 w-full py-2.5 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-sm font-medium rounded-full cursor-pointer transition shadow-sm ${isUploading ? 'opacity-50 pointer-events-none':''}`}>
               {isUploading ? <RefreshCcw size={16} className="animate-spin text-zinc-500"/> : <PlusCircle size={16} />} 
-              {isUploading ? 'Uploading to cloud...' : 'Add sources'}
+              {isUploading ? t('uploadingToCloud') : t('addSources')}
               <input 
                 type="file" multiple className="hidden" 
                 onChange={(e) => {
@@ -707,40 +709,40 @@ export default function Home() {
 
             <div className="relative">
               <Search size={14} className="absolute left-3 top-2.5 text-zinc-400" />
-              <input type="text" placeholder="Search sources..." className="w-full pl-8 pr-3 py-2 text-sm bg-zinc-100 dark:bg-zinc-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 border border-transparent focus:border-blue-500/20" />
+              <input type="text" placeholder={t('searchSources')} className="w-full pl-8 pr-3 py-2 text-sm bg-zinc-100 dark:bg-zinc-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 border border-transparent focus:border-blue-500/20" />
             </div>
 
             <div className="flex flex-wrap gap-2 text-xs font-medium text-zinc-500">
-               <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full border border-blue-200">All</span>
-               <span className="px-3 py-1 border border-zinc-200 dark:border-zinc-700 rounded-full">PDFs</span>
-               <span className="px-3 py-1 border border-zinc-200 dark:border-zinc-700 rounded-full">Text</span>
+               <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full border border-blue-200">{t('all')}</span>
+               <span className="px-3 py-1 border border-zinc-200 dark:border-zinc-700 rounded-full">{t('pdfs')}</span>
+               <span className="px-3 py-1 border border-zinc-200 dark:border-zinc-700 rounded-full">{t('text')}</span>
             </div>
 
             {/* Condensed Legacy Folder View */}
             <div className="mt-4 flex flex-col gap-1">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-2">{sources.length > 0 ? "Cloud Resources" : ""}</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-2">{sources.length > 0 ? t('cloudResources') : ""}</p>
               {sources.length > 0 && (
                 <Link href="/sources" className="flex items-center gap-4 p-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl hover:shadow-md transition group">
                    <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg flex items-center justify-center flex-shrink-0">
                       <FileText size={20} className="group-hover:scale-110 transition-transform"/>
                    </div>
                    <div className="flex flex-col">
-                      <span className="font-bold text-zinc-900 dark:text-zinc-100 text-sm">Source Vault</span>
-                      <span className="text-zinc-500 font-medium text-xs">{sources.length} document{sources.length === 1 ? '' : 's'} managed</span>
+                      <span className="font-bold text-zinc-900 dark:text-zinc-100 text-sm">{t('sourceVault')}</span>
+                      <span className="text-zinc-500 font-medium text-xs">{sources.length} {t('documentsManaged')}</span>
                    </div>
                 </Link>
               )}
             </div>
             {/* Wisdom Tags */}
             <div className="mt-8 flex flex-col gap-3 border-t border-zinc-200 dark:border-zinc-800 pt-4 flex-1 h-0">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">{wisdomSummaries.length > 0 ? "Wisdom Tags" : ""}</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">{wisdomSummaries.length > 0 ? t('wisdomTags') : ""}</p>
               
               {wisdomSummaries.length > 0 && (
                 <div className="relative">
                   <Search size={12} className="absolute left-2.5 top-2 text-zinc-400" />
                   <input 
                     type="text" 
-                    placeholder="Search tags..." 
+                    placeholder={t('searchTags')} 
                     value={tagSearchQuery}
                     onChange={(e) => setTagSearchQuery(e.target.value)}
                     className="w-full pl-7 pr-3 py-1.5 text-xs bg-zinc-100 dark:bg-zinc-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 border border-transparent focus:border-blue-500/20" 
@@ -769,7 +771,7 @@ export default function Home() {
                         );
                     })}
                     {wisdomSummaries.length > 0 && Object.values(groupedWisdomTags).every(g => g.length === 0) && (
-                       <span className="text-xs text-zinc-400 italic text-center w-full block mt-4">No tags match search.</span>
+                       <span className="text-xs text-zinc-400 italic text-center w-full block mt-4">{t('noTagsMatchSearch')}</span>
                     )}
                  </div>
                  
@@ -826,9 +828,9 @@ export default function Home() {
           
           <div className="flex items-center justify-between p-4 border-b border-zinc-100 dark:border-zinc-800">
              <div className="flex items-center gap-2 text-zinc-400 font-medium text-sm">
-                Chat
+                {tChat('title')}
              </div>
-             <button className="text-xs font-semibold px-3 py-1.5 border border-zinc-200 dark:border-zinc-700 rounded-md hover:bg-zinc-50 dark:hover:bg-zinc-800 transition">Save to note</button>
+             <button className="text-xs font-semibold px-3 py-1.5 border border-zinc-200 dark:border-zinc-700 rounded-md hover:bg-zinc-50 dark:hover:bg-zinc-800 transition">{tChat('saveToNote')}</button>
           </div>
 
           <div className="flex-1 overflow-y-auto px-8 py-10 pb-40 scroll-smooth">
@@ -837,7 +839,7 @@ export default function Home() {
                  {/* Synopsis Block */}
                  {(synopsis || chunks.length > 0) && (
                    <div className="mb-12">
-                     <h1 className="text-3xl font-extrabold text-zinc-900 dark:text-zinc-100 mb-6 leading-tight">Legacy Overview</h1>
+                     <h1 className="text-3xl font-extrabold text-zinc-900 dark:text-zinc-100 mb-6 leading-tight">{tChat('legacyOverview')}</h1>
                      <div className="prose prose-zinc dark:prose-invert text-base leading-relaxed text-zinc-700 dark:text-zinc-300 max-w-none prose-p:mb-5">
                        <ReactMarkdown>
                          {synopsis}
@@ -907,7 +909,7 @@ export default function Home() {
                  {sources.length === 0 && chunks.length === 0 && (
                    <div className="h-full flex flex-col items-center justify-center opacity-50">
                      <div className="w-16 h-16 bg-zinc-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mb-4"><MessageSquare size={32}/></div>
-                     <p className="text-lg font-medium text-zinc-500">Add a source to begin generation.</p>
+                     <p className="text-lg font-medium text-zinc-500">{tChat('addSourceToBegin')}</p>
                    </div>
                  )}
                </>
@@ -919,7 +921,7 @@ export default function Home() {
              <form onSubmit={handleChatSubmit} className="bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-xl rounded-full px-4 py-3 flex items-center gap-3">
                 <input 
                   type="text" 
-                  placeholder="Ask any question about the sources..." 
+                  placeholder={tChat('askQuestionPlaceholder')} 
                   className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-zinc-400"
                   disabled={sources.length === 0 || isChatting}
                   value={chatInput}
@@ -933,7 +935,7 @@ export default function Home() {
                   <ArrowRight size={16}/>
                 </button>
              </form>
-             <p className="text-center text-[10px] text-zinc-400 mt-3">Legacy Nexus can make mistakes. Always verify stories with family.</p>
+             <p className="text-center text-[10px] text-zinc-400 mt-3">{tChat('disclaimer')}</p>
           </div>
         </div>
 
@@ -1098,7 +1100,7 @@ export default function Home() {
           >
             <div className="flex items-center justify-between mb-3 border-b border-zinc-100 dark:border-zinc-800 pb-2">
               <h4 className="font-bold text-red-600 dark:text-red-400 flex items-center gap-1.5 text-sm">
-                <Sparkles size={14} /> AI Discrepancy Found?
+                <Sparkles size={14} /> {tChat('aiDiscrepancy')}
               </h4>
               <button onClick={() => setSelectionContext(null)} className="text-zinc-400 hover:text-zinc-600">
                 <X size={14} />
@@ -1110,7 +1112,7 @@ export default function Home() {
             <textarea 
                value={overrideInput}
                onChange={(e) => setOverrideInput(e.target.value)}
-               placeholder="Explain the actual truth to the AI so it never makes this mistake again..."
+               placeholder={tChat('explainTruthPlaceholder')}
                className="w-full text-sm bg-zinc-50 dark:bg-[#121212] border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 min-h-[100px] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
             />
             <div className="flex justify-end gap-2">
@@ -1120,7 +1122,7 @@ export default function Home() {
                  className="flex items-center gap-2 px-4 py-2 bg-black dark:bg-white text-white dark:text-black hover:bg-zinc-800 dark:hover:bg-zinc-200 font-bold text-xs rounded-lg transition disabled:opacity-50"
               >
                  {isSavingOverride ? <Loader2 size={12} className="animate-spin"/> : <PenTool size={12}/>}
-                 Override AI Memory
+                 {tChat('overrideMemory')}
               </button>
             </div>
           </motion.div>

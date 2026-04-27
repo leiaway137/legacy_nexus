@@ -8,8 +8,11 @@ import { useBackgroundJobs } from "@/components/BackgroundJobProvider";
 import { ShareModal } from "./ShareModal";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { LanguageSwitcher } from "./LanguageSwitcher";
+import { useTranslations } from 'next-intl';
 
 export function GlobalHeader() {
+  const t = useTranslations('Header');
   const { user } = useAuth();
   const { jobs } = useBackgroundJobs();
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -36,7 +39,7 @@ export function GlobalHeader() {
         <span className="font-semibold text-lg flex items-center gap-2">
           Legacy Nexus 
           <span className="px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-xs rounded-full font-medium text-zinc-500">
-            Workspace
+            {t('workspace')}
           </span>
           {activeJobs.length > 0 && (
              <div className="flex items-center gap-1.5 ml-2 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2.5 py-1 rounded-full shadow-sm border border-indigo-100 dark:border-indigo-800 uppercase tracking-widest hidden lg:flex">
@@ -49,11 +52,12 @@ export function GlobalHeader() {
       </div>
       
       <div className="flex items-center gap-4">
+        <LanguageSwitcher />
         <button onClick={() => setIsShareModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition">
-          <Share2 size={16}/> Share
+          <Share2 size={16}/> {t('share')}
         </button>
         <button className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition">
-          <Settings size={16}/> Settings
+          <Settings size={16}/> {t('settings')}
         </button>
         <div className="relative">
           <div id="profile-btn" onClick={() => setIsProfileOpen(!isProfileOpen)} className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold cursor-pointer relative z-[1001] shadow-sm hover:ring-2 hover:ring-blue-400 hover:ring-offset-2 transition-all">
@@ -79,26 +83,26 @@ export function GlobalHeader() {
                      <div className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-zinc-400 truncate border-b border-zinc-100 dark:border-zinc-800 mb-1">{user.email}</div>
                      
                      <Link onClick={() => setIsProfileOpen(false)} href="/" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 cursor-pointer">
-                       <Home size={16}/> Dashboard
+                       <Home size={16}/> {t('dashboard')}
                      </Link>
                      <Link onClick={() => setIsProfileOpen(false)} href="/profile" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 cursor-pointer">
-                       <User size={16}/> Profile
+                       <User size={16}/> {t('profile')}
                      </Link>
                      <Link onClick={() => setIsProfileOpen(false)} href="/contacts" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 cursor-pointer">
-                       <Network size={16}/> Address Book
+                       <Network size={16}/> {t('addressBook')}
                      </Link>
                      <Link onClick={() => setIsProfileOpen(false)} href="/stories" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 cursor-pointer">
-                       <Library size={16}/> Timeline
+                       <Library size={16}/> {t('timeline')}
                      </Link>
                      <Link onClick={() => setIsProfileOpen(false)} href="/progress" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 cursor-pointer">
-                       <Activity size={16}/> Legacy Progress
+                       <Activity size={16}/> {t('legacyProgress')}
                      </Link>
                      <Link onClick={() => setIsProfileOpen(false)} href="/my-stories" className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 cursor-pointer">
-                       <BookOpen size={16}/> My Stories
+                       <BookOpen size={16}/> {t('myStories')}
                      </Link>
                      
                      <button onClick={() => { setIsProfileOpen(false); signOut(); }} className="w-full text-left px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg flex items-center gap-2 mt-1 border-t border-zinc-100 dark:border-zinc-800 pt-3 cursor-pointer transition">
-                       <LogOut size={16}/> Sign Out
+                       <LogOut size={16}/> {t('signOut')}
                      </button>
                    </div>
                 </motion.div>

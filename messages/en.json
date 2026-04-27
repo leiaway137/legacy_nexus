@@ -1,0 +1,52 @@
+{
+  "Navigation": {
+    "home": "Home",
+    "login": "Login",
+    "logout": "Logout",
+    "legacy": "Legacy",
+    "profile": "Profile"
+  },
+  "Index": {
+    "title": "Welcome to Legacy Nexus",
+    "description": "Preserve your stories for generations to come."
+  },
+  "Dashboard": {
+    "sources": "Sources",
+    "vault": "Vault",
+    "uploadingToCloud": "Uploading to cloud...",
+    "addSources": "Add sources",
+    "searchSources": "Search sources...",
+    "all": "All",
+    "pdfs": "PDFs",
+    "text": "Text",
+    "cloudResources": "Cloud Resources",
+    "sourceVault": "Source Vault",
+    "documentsManaged": "document(s) managed",
+    "wisdomTags": "Wisdom Tags",
+    "searchTags": "Search tags...",
+    "noTagsMatchSearch": "No tags match search."
+  },
+  "Header": {
+    "workspace": "Workspace",
+    "share": "Share",
+    "settings": "Settings",
+    "dashboard": "Dashboard",
+    "profile": "Profile",
+    "addressBook": "Address Book",
+    "timeline": "Timeline",
+    "legacyProgress": "Legacy Progress",
+    "myStories": "My Stories",
+    "signOut": "Sign Out"
+  },
+  "Chat": {
+    "title": "Chat",
+    "saveToNote": "Save to note",
+    "legacyOverview": "Legacy Overview",
+    "addSourceToBegin": "Add a source to begin generation.",
+    "askQuestionPlaceholder": "Ask any question about the sources...",
+    "disclaimer": "Legacy Nexus can make mistakes. Always verify stories with family.",
+    "aiDiscrepancy": "AI Discrepancy Found?",
+    "explainTruthPlaceholder": "Explain the actual truth to the AI so it never makes this mistake again...",
+    "overrideMemory": "Override AI Memory"
+  }
+}
