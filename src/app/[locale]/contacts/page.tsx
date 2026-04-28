@@ -10,6 +10,7 @@ import { fetchContacts, saveContact, deleteContact, fetchUserSources, Contact, N
 import { parseCSV, parseVCF, correlateContacts } from "@/lib/contacts";
 import { fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/mongo/db";
 import { recompileStoriesWithContactsAction } from "@/app/actions";
+import { useTranslations } from 'next-intl';
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ#".split('');
 
@@ -28,6 +29,7 @@ const getContextSnippet = (sources: NotebookSource[] | undefined, name: string):
 };
 
 export default function ContactsPage() {
+  const t = useTranslations('ContactsPage');
   const { user, loading } = useAuth();
   const { startJob } = useBackgroundJobs();
   
@@ -312,9 +314,9 @@ export default function ContactsPage() {
          <div className="flex items-center gap-4">
              <div>
                 <h1 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-zinc-100">
-                   Address Book
+                   {t('addressBook')}
                 </h1>
-                <p className="text-xs text-zinc-500 font-medium">{contacts.length} saved entities</p>
+                <p className="text-xs text-zinc-500 font-medium">{t('savedEntities', { count: contacts.length })}</p>
              </div>
          </div>
          <div className="flex items-center gap-3">
@@ -322,7 +324,7 @@ export default function ContactsPage() {
                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                 <input 
                   type="text" 
-                  placeholder="Search network..." 
+                  placeholder={t('searchNetwork')} 
                   className="pl-9 pr-4 py-1.5 text-sm bg-zinc-100 dark:bg-zinc-800 border-none rounded-full w-48 focus:ring-2 focus:ring-indigo-500 outline-none"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
@@ -330,17 +332,17 @@ export default function ContactsPage() {
              </div>
              <div className="flex gap-2">
                  <button onClick={() => setIsCreateModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition shadow-sm">
-                   <Plus size={14}/> New Entity
+                   <Plus size={14}/> {t('newEntity')}
                  </button>
                  <input type="file" accept=".vcf,.csv" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
                  <button disabled={isImporting || isCommitingBulk} onClick={() => fileInputRef.current?.click()} className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50">
                    {isImporting ? <Loader2 className="animate-spin" size={14}/> : <Upload size={14}/>}
-                   {isImporting ? "Processing..." : "Import CSV/VCF"}
+                   {isImporting ? t('processing') : t('importCsvVcf')}
                  </button>
              </div>
-             <button disabled={contacts.length === 0} onClick={handleBulkCommit} title="Runs safely in the background" className="bg-zinc-900 dark:bg-white text-white dark:text-black px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50 hover:opacity-90">
+             <button disabled={contacts.length === 0} onClick={handleBulkCommit} title={t('runsSafely')} className="bg-zinc-900 dark:bg-white text-white dark:text-black px-4 py-1.5 rounded-full text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50 hover:opacity-90">
                <RefreshCw size={14}/>
-               Commit Ties to Timeline
+               {t('commitTiesToTimeline')}
              </button>
          </div>
       </header>
@@ -387,7 +389,7 @@ export default function ContactsPage() {
                 })}
                 {sortedContacts.length === 0 && (
                    <div className="text-center py-20 text-zinc-400 text-sm">
-                      No contacts found matching criteria.
+                      {t('noContactsFound')}
                    </div>
                 )}
             </div>
@@ -405,7 +407,7 @@ export default function ContactsPage() {
                                ? "font-bold text-indigo-600 dark:text-indigo-400 hover:scale-125 hover:bg-slate-100 dark:hover:bg-slate-800" 
                                : "font-medium text-zinc-300 dark:text-zinc-700"
                            }`}
-                           title={count > 0 ? `${count} contacts` : 'No contacts'}
+                           title={count > 0 ? `${count} ${t('contacts')}` : t('noContacts')}
                         >
                             <span>{letter}</span>
                             {count > 0 && <span className="opacity-60 text-[7px] tracking-tighter">[{count}]</span>}
@@ -429,9 +431,9 @@ export default function ContactsPage() {
                                {activeContact.completeName || activeContact.originalName}
                              </h2>
                              <div className="flex items-center gap-2">
-                                {activeContact.source === 'merged' && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider flex items-center gap-1 h-max"><ShieldCheck size={12}/> Verified</span>}
-                                {activeContact.source === 'import' && <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider h-max">Imported</span>}
-                                {(!activeContact.source || activeContact.source === 'story') && <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider h-max">AI Extracted</span>}
+                                {activeContact.source === 'merged' && <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider flex items-center gap-1 h-max"><ShieldCheck size={12}/> {t('verified')}</span>}
+                                {activeContact.source === 'import' && <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider h-max">{t('imported')}</span>}
+                                {(!activeContact.source || activeContact.source === 'story') && <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider h-max">{t('aiExtracted')}</span>}
                                 <button onClick={async () => {
                                     if(confirm('Are you sure you want to delete this entity?')) {
                                         await deleteContact(activeContact.id);
@@ -439,15 +441,15 @@ export default function ContactsPage() {
                                         setActiveContactId(null);
                                     }
                                 }} className="bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider flex items-center gap-1 h-max transition ml-2">
-                                    <Trash2 size={12}/> Delete
+                                    <Trash2 size={12}/> {t('delete')}
                                 </button>
                              </div>
                          </div>
                          <div className="flex items-center gap-4 text-sm text-zinc-500 font-medium">
-                            {activeContact.phone && <span className="flex items-center gap-1.5"><Phone size={14}/> {activeContact.phone}</span>}
-                            {activeContact.email && <span className="flex items-center gap-1.5"><Mail size={14}/> {activeContact.email}</span>}
-                            {!activeContact.phone && !activeContact.email && <span>No contact methods saved.</span>}
-                         </div>
+                             {activeContact.phone && <span className="flex items-center gap-1.5"><Phone size={14}/> {activeContact.phone}</span>}
+                             {activeContact.email && <span className="flex items-center gap-1.5"><Mail size={14}/> {activeContact.email}</span>}
+                             {!activeContact.phone && !activeContact.email && <span>{t('noContactMethods')}</span>}
+                          </div>
                       </div>
                    </div>
 
@@ -455,12 +457,12 @@ export default function ContactsPage() {
                     {potentialDuplicates.length > 0 && (
                         <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-900 p-4 rounded-xl mb-6 flex items-center justify-between">
                             <div className="flex flex-col">
-                                <span className="text-blue-800 dark:text-blue-300 font-bold text-sm">Potential Duplicates Found ({potentialDuplicates.length})</span>
-                                <span className="text-blue-600 dark:text-blue-400 text-xs mt-0.5">We found other entries with the same name.</span>
+                                <span className="text-blue-800 dark:text-blue-300 font-bold text-sm">{t('potentialDuplicates', { count: potentialDuplicates.length })}</span>
+                                <span className="text-blue-600 dark:text-blue-400 text-xs mt-0.5">{t('duplicatesDesc')}</span>
                             </div>
                             <button disabled={isCommitingBulk} onClick={mergeDuplicates} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition disabled:opacity-50 shadow-sm">
                                 {isCommitingBulk ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14}/>}
-                                Merge Entities
+                                {t('mergeEntities')}
                             </button>
                         </div>
                     )}
@@ -469,13 +471,13 @@ export default function ContactsPage() {
                         onClick={() => setActiveTab('profile')} 
                         className={`px-6 py-3 font-semibold text-sm transition border-b-2 ${activeTab === 'profile' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
                       >
-                         Profile Details
+                         {t('profileDetails')}
                       </button>
                       <button 
                         onClick={() => setActiveTab('nexus')} 
                         className={`px-6 py-3 font-semibold text-sm transition border-b-2 ${activeTab === 'nexus' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
                       >
-                         Story Association (NexusLink)
+                         {t('storyAssociation')}
                       </button>
                    </div>
 
@@ -483,13 +485,13 @@ export default function ContactsPage() {
                    {activeTab === 'profile' && (
                       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-sm">
                           <div className="flex items-center justify-between mb-6">
-                             <h3 className="font-bold text-lg text-zinc-800 dark:text-zinc-200">Contact Card</h3>
+                             <h3 className="font-bold text-lg text-zinc-800 dark:text-zinc-200">{t('contactCard')}</h3>
                              {!editingData ? (
                                 <button onClick={() => setEditingData({})} className="text-sm font-semibold flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 transition">
-                                   <Edit3 size={14}/> Edit
+                                   <Edit3 size={14}/> {t('edit')}
                                 </button>
                              ) : (
-                                <button title="Fast autofill First & Last Name from Canonical Name" onClick={() => {
+                                <button title={t('autoSplitNameTitle')} onClick={() => {
                                     const defaultParts = (activeContact.completeName || activeContact.originalName || "").trim().split(' ');
                                     if (defaultParts.length > 1) {
                                         setEditingData(prev => ({
@@ -501,103 +503,103 @@ export default function ContactsPage() {
                                         setEditingData(prev => ({ ...prev, firstName: defaultParts[0] }));
                                     }
                                 }} className="text-xs font-semibold flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition px-2 py-1 rounded">
-                                    <Sparkles size={12}/> Auto-Split Name
+                                    <Sparkles size={12}/> {t('autoSplitName')}
                                 </button>
                              )}
                           </div>
                           
                           <div className="grid grid-cols-2 gap-x-8 gap-y-6">
                              <div className="flex flex-col gap-1.5">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">First Name</span>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t('firstName')}</span>
                                 {editingData ? (
                                    <input value={editingData.firstName ?? activeContact.firstName ?? ''} onChange={e => setEditingData({...editingData, firstName: e.target.value})} className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded font-medium text-sm"/>
                                 ) : <span className="font-medium text-zinc-800 dark:text-zinc-200">{activeContact.firstName || '—'}</span>}
                              </div>
                              <div className="flex flex-col gap-1.5">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Last Name</span>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t('lastName')}</span>
                                 {editingData ? (
                                    <input value={editingData.lastName ?? activeContact.lastName ?? ''} onChange={e => setEditingData({...editingData, lastName: e.target.value})} className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded font-medium text-sm"/>
                                 ) : <span className="font-medium text-zinc-800 dark:text-zinc-200">{activeContact.lastName || '—'}</span>}
                              </div>
                              <div className="flex flex-col gap-1.5">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Phone Mobile</span>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t('phoneMobile')}</span>
                                 {editingData ? (
                                    <input value={editingData.phone ?? activeContact.phone ?? ''} onChange={e => setEditingData({...editingData, phone: e.target.value})} className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded font-medium text-sm"/>
                                 ) : <span className="font-medium text-zinc-800 dark:text-zinc-200">{activeContact.phone || '—'}</span>}
                              </div>
                              <div className="flex flex-col gap-1.5">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Backup Email</span>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t('backupEmail')}</span>
                                 {editingData ? (
                                    <input value={editingData.email ?? activeContact.email ?? ''} onChange={e => setEditingData({...editingData, email: e.target.value})} className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded font-medium text-sm"/>
                                 ) : <span className="font-medium text-zinc-800 dark:text-zinc-200">{activeContact.email || '—'}</span>}
                              </div>
                              <div className="flex flex-col gap-1.5 col-span-2">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Relationship (To Narrator)</span>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t('relationshipToNarrator')}</span>
                                 {editingData ? (
                                    <select value={editingData.relationship ?? activeContact.relationship ?? ''} onChange={e => setEditingData({...editingData, relationship: e.target.value})} className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded font-medium text-sm">
-                                      <option value="">Unknown</option>
-                                      <option value="Self">Self / Account Owner</option>
-                                      <optgroup label="Immediate Family">
-                                        <option value="Mother">Mother</option>
-                                        <option value="Father">Father</option>
-                                        <option value="Spouse">Spouse</option>
-                                        <option value="Daughter">Daughter</option>
-                                        <option value="Son">Son</option>
-                                        <option value="Sister">Sister</option>
-                                        <option value="Brother">Brother</option>
+                                      <option value="">{t('unknown')}</option>
+                                      <option value="Self">{t('self')}</option>
+                                      <optgroup label={t('immediateFamily')}>
+                                        <option value="Mother">{t('mother')}</option>
+                                        <option value="Father">{t('father')}</option>
+                                        <option value="Spouse">{t('spouse')}</option>
+                                        <option value="Daughter">{t('daughter')}</option>
+                                        <option value="Son">{t('son')}</option>
+                                        <option value="Sister">{t('sister')}</option>
+                                        <option value="Brother">{t('brother')}</option>
                                       </optgroup>
-                                      <optgroup label="Extended Family (Step/In-Law)">
-                                        <option value="Step-Daughter">Step-Daughter</option>
-                                        <option value="Step-Son">Step-Son</option>
-                                        <option value="Step-Mother">Step-Mother</option>
-                                        <option value="Step-Father">Step-Father</option>
-                                        <option value="Granddaughter">Granddaughter</option>
-                                        <option value="Grandson">Grandson</option>
-                                        <option value="Grandmother">Grandmother</option>
-                                        <option value="Grandfather">Grandfather</option>
-                                        <option value="Aunt">Aunt</option>
-                                        <option value="Uncle">Uncle</option>
-                                        <option value="Niece">Niece</option>
-                                        <option value="Nephew">Nephew</option>
-                                        <option value="Cousin">Cousin</option>
-                                        <option value="Mother-in-Law">Mother-in-Law</option>
-                                        <option value="Father-in-Law">Father-in-Law</option>
-                                        <option value="Sister-in-Law">Sister-in-Law</option>
-                                        <option value="Brother-in-Law">Brother-in-Law</option>
+                                      <optgroup label={t('extendedFamily')}>
+                                        <option value="Step-Daughter">{t('stepDaughter')}</option>
+                                        <option value="Step-Son">{t('stepSon')}</option>
+                                        <option value="Step-Mother">{t('stepMother')}</option>
+                                        <option value="Step-Father">{t('stepFather')}</option>
+                                        <option value="Granddaughter">{t('granddaughter')}</option>
+                                        <option value="Grandson">{t('grandson')}</option>
+                                        <option value="Grandmother">{t('grandmother')}</option>
+                                        <option value="Grandfather">{t('grandfather')}</option>
+                                        <option value="Aunt">{t('aunt')}</option>
+                                        <option value="Uncle">{t('uncle')}</option>
+                                        <option value="Niece">{t('niece')}</option>
+                                        <option value="Nephew">{t('nephew')}</option>
+                                        <option value="Cousin">{t('cousin')}</option>
+                                        <option value="Mother-in-Law">{t('motherInLaw')}</option>
+                                        <option value="Father-in-Law">{t('fatherInLaw')}</option>
+                                        <option value="Sister-in-Law">{t('sisterInLaw')}</option>
+                                        <option value="Brother-in-Law">{t('brotherInLaw')}</option>
                                       </optgroup>
-                                      <optgroup label="Social & Professional">
-                                        <option value="Friend">Friend</option>
-                                        <option value="Colleague">Colleague</option>
-                                        <option value="Mentor">Mentor</option>
-                                        <option value="Student">Student</option>
-                                        <option value="Neighbor">Neighbor</option>
+                                      <optgroup label={t('socialProfessional')}>
+                                        <option value="Friend">{t('friend')}</option>
+                                        <option value="Colleague">{t('colleague')}</option>
+                                        <option value="Mentor">{t('mentor')}</option>
+                                        <option value="Student">{t('student')}</option>
+                                        <option value="Neighbor">{t('neighbor')}</option>
                                       </optgroup>
                                    </select>
-                                ) : <span className="font-medium text-zinc-800 dark:text-zinc-200">{activeContact.relationship || 'Unspecified'}</span>}
+                                ) : <span className="font-medium text-zinc-800 dark:text-zinc-200">{activeContact.relationship || t('unknown')}</span>}
                              </div>
                              <div className="flex flex-col gap-1.5 col-span-2">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Legacy Archive Access</span>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t('legacyArchiveAccess')}</span>
                                 {editingData ? (
                                    <select value={editingData.archiveAccessTier ?? activeContact.archiveAccessTier ?? 'none'} onChange={e => setEditingData({...editingData, archiveAccessTier: e.target.value as any})} className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded font-medium text-sm">
-                                      <option value="none">Standard Access (Fallback to Global Settings)</option>
-                                      <option value="family">Trusted Reader / Family Tier</option>
+                                      <option value="none">{t('standardAccessValue')}</option>
+                                      <option value="family">{t('trustedReaderValue')}</option>
                                    </select>
                                 ) : (
                                    <div className="flex items-center gap-2">
                                       <span className="font-medium text-zinc-800 dark:text-zinc-200">
-                                         {activeContact.archiveAccessTier === 'family' ? 'Trusted Reader / Family Tier' : 'Standard Access'}
+                                         {activeContact.archiveAccessTier === 'family' ? t('trustedReader') : t('standardAccess')}
                                       </span>
                                       {activeContact.archiveAccessTier === 'family' && <ShieldCheck size={14} className="text-emerald-500" />}
                                    </div>
                                 )}
-                                <p className="text-xs text-zinc-500 mt-1">If approved as a Trusted Reader, this person's email will bypass public anonymization filters and will be authorized to view Family-Only archives.</p>
+                                <p className="text-xs text-zinc-500 mt-1">{t('archiveAccessDesc')}</p>
                              </div>
                           </div>
                           
                           {editingData && (
                              <div className="mt-8 flex gap-3 justify-end pt-4 border-t border-zinc-100 dark:border-zinc-800">
-                                <button onClick={() => setEditingData(null)} className="px-4 py-2 font-semibold text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg">Cancel</button>
-                                <button onClick={saveEdit} className="px-6 py-2 font-semibold text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">Save Profile</button>
+                                <button onClick={() => setEditingData(null)} className="px-4 py-2 font-semibold text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg">{t('cancel')}</button>
+                                <button onClick={saveEdit} className="px-6 py-2 font-semibold text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">{t('saveProfile')}</button>
                              </div>
                           )}
                       </div>
@@ -610,19 +612,19 @@ export default function ContactsPage() {
                          {activeContact.source === 'import' ? (
                             <div className="bg-white dark:bg-zinc-900 border-2 border-indigo-100 dark:border-indigo-900/50 rounded-2xl p-6 shadow-sm relative overflow-hidden">
                                <div className="relative z-10">
-                                  <h3 className="font-bold text-lg text-indigo-900 dark:text-indigo-200 mb-2">Isolated Identity</h3>
+                                  <h3 className="font-bold text-lg text-indigo-900 dark:text-indigo-200 mb-2">{t('isolatedIdentity')}</h3>
                                   <p className="text-sm text-indigo-700 dark:text-indigo-400/80 leading-relaxed max-w-lg mb-6">
-                                     This person was synced from an address book, meaning they are a verified part of your network, but they do not appear in any collected legacy memories yet.
+                                     {t('isolatedIdentityDesc')}
                                   </p>
                                   <button className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-2.5 rounded-full flex items-center gap-2 text-sm transition hover:shadow-lg hover:shadow-indigo-500/20">
-                                     <Sparkles size={16} /> Prompt a memory via AI
+                                     <Sparkles size={16} /> {t('promptMemoryAi')}
                                   </button>
                                </div>
                             </div>
                          ) : (
                             <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-2xl p-6 shadow-sm">
                                <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-amber-700 dark:text-amber-500 mb-3">
-                                  <Quote size={14}/> Context String
+                                  <Quote size={14}/> {t('contextString')}
                                </span>
                                <p className="text-amber-900 dark:text-amber-300 font-serif italic leading-relaxed text-lg pl-4 border-l-4 border-amber-300 dark:border-amber-700">
                                   {getContextSnippet(sources, activeContact.originalName)}
@@ -631,12 +633,12 @@ export default function ContactsPage() {
                          )}
 
                          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-sm">
-                             <h3 className="font-bold text-lg text-zinc-800 dark:text-zinc-200 border-b border-zinc-100 dark:border-zinc-800 pb-3 mb-4">AI Disambiguation</h3>
+                             <h3 className="font-bold text-lg text-zinc-800 dark:text-zinc-200 border-b border-zinc-100 dark:border-zinc-800 pb-3 mb-4">{t('aiDisambiguation')}</h3>
                              
-                             <div className="text-[10px] uppercase font-bold text-zinc-500 mb-3 block">Select a primary name for AI compilation contexts</div>
+                             <div className="text-[10px] uppercase font-bold text-zinc-500 mb-3 block">{t('selectPrimaryName')}</div>
                              <div className="grid grid-cols-2 gap-4">
                                 <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-3">Canon Identifier</span>
+                                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-3">{t('canonIdentifier')}</span>
                                    <div 
                                       className={`flex items-center gap-1.5 w-max px-3 py-1.5 rounded-full font-mono text-sm cursor-pointer transition border ${activeContact.preferredName === activeContact.originalName ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100' : 'bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:border-amber-400 group'}`}
                                       onClick={() => handleSetPreferredName(activeContact.originalName)}
@@ -647,7 +649,7 @@ export default function ContactsPage() {
                                 </div>
                                 
                                 <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-3 px-1">Known Aliases</span>
+                                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-3 px-1">{t('knownAliases')}</span>
                                    {editingData ? (
                                       <input 
                                          value={editingData.rawAliasesText ?? editingData.aliases?.join(', ') ?? activeContact.aliases?.join(', ') ?? ''} 
@@ -666,7 +668,7 @@ export default function ContactsPage() {
                                               <Star size={14} className={activeContact.preferredName === a ? "fill-amber-400 text-amber-500" : "text-zinc-300 dark:text-zinc-600 group-hover:text-amber-400"} />
                                               {a}
                                            </div>
-                                        )) : <span className="text-xs text-zinc-400 p-1">No aliases to elect. Add some below.</span>}
+                                        )) : <span className="text-xs text-zinc-400 p-1">{t('noAliases')}</span>}
                                      </div>
                                    )}
                                 </div>
@@ -674,10 +676,10 @@ export default function ContactsPage() {
 
                              {editingData ? (
                                 <div className="flex gap-2 mt-4 justify-end">
-                                   <button onClick={saveEdit} className="px-4 py-1.5 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded text-sm font-semibold">Save Aliases</button>
+                                   <button onClick={saveEdit} className="px-4 py-1.5 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded text-sm font-semibold">{t('saveAliases')}</button>
                                 </div>
                              ) : (
-                                <button onClick={() => setEditingData({})} className="mt-4 text-xs font-bold text-indigo-600 hover:underline inline-block">Edit Disambiguation Schema</button>
+                                <button onClick={() => setEditingData({})} className="mt-4 text-xs font-bold text-indigo-600 hover:underline inline-block">{t('editDisambiguationSchema')}</button>
                              )}
                          </div>
 
@@ -689,8 +691,8 @@ export default function ContactsPage() {
                    <div className="w-20 h-20 bg-zinc-100 dark:bg-zinc-900 rounded-full flex items-center justify-center mb-4">
                       <User size={32} className="text-zinc-300 dark:text-zinc-600" />
                    </div>
-                   <h2 className="text-xl font-bold text-zinc-600 dark:text-zinc-300 mb-2">Select a Contact</h2>
-                   <p className="max-w-sm text-sm">Review imported relationships, verify AI extraction algorithms, and build NexusLink bonds.</p>
+                   <h2 className="text-xl font-bold text-zinc-600 dark:text-zinc-300 mb-2">{t('selectContact')}</h2>
+                   <p className="max-w-sm text-sm">{t('selectContactDesc')}</p>
                 </div>
             )}
          </div>
@@ -713,42 +715,42 @@ export default function ContactsPage() {
                    <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-full flex items-center justify-center mb-4">
                       <User size={20} />
                    </div>
-                   <h2 className="text-2xl font-bold font-serif text-zinc-900 dark:text-zinc-100 mb-1">Add Contact</h2>
-                   <p className="text-sm text-zinc-500 mb-6">Manually inject a person (like yourself) into the Address Book to correctly map their identity across timelines.</p>
+                   <h2 className="text-2xl font-bold font-serif text-zinc-900 dark:text-zinc-100 mb-1">{t('addContact')}</h2>
+                   <p className="text-sm text-zinc-500 mb-6">{t('addContactDesc')}</p>
 
                    <div className="flex flex-col gap-4">
                       <div className="grid grid-cols-2 gap-4">
                          <div className="flex flex-col gap-1.5">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">First Name</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t('firstName')}</span>
                             <input value={createData.firstName} onChange={e => setCreateData({...createData, firstName: e.target.value})} className="px-3 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm outline-none focus:border-indigo-500 transition" placeholder="Leia" />
                          </div>
                          <div className="flex flex-col gap-1.5">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Last Name</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t('lastName')}</span>
                             <input value={createData.lastName} onChange={e => setCreateData({...createData, lastName: e.target.value})} className="px-3 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm outline-none focus:border-indigo-500 transition" placeholder="Way" />
                          </div>
                       </div>
                       <div className="flex flex-col gap-1.5">
-                         <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Relationship (To Narrator)</span>
+                         <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t('relationshipToNarrator')}</span>
                          <select value={createData.relationship} onChange={e => setCreateData({...createData, relationship: e.target.value})} className="px-3 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm outline-none focus:border-indigo-500 transition cursor-pointer appearance-none">
-                            <option value="">Select a relationship (Optional)</option>
-                            <option value="Self">Self / Interviewer</option>
-                            <option value="Mother">Mother</option>
-                            <option value="Father">Father</option>
-                            <option value="Spouse">Spouse</option>
-                            <option value="Daughter">Daughter</option>
-                            <option value="Son">Son</option>
-                            <option value="Friend">Friend</option>
-                            <option value="Colleague">Colleague</option>
+                            <option value="">{t('selectRelationship')}</option>
+                            <option value="Self">{t('selfInterviewer')}</option>
+                            <option value="Mother">{t('mother')}</option>
+                            <option value="Father">{t('father')}</option>
+                            <option value="Spouse">{t('spouse')}</option>
+                            <option value="Daughter">{t('daughter')}</option>
+                            <option value="Son">{t('son')}</option>
+                            <option value="Friend">{t('friend')}</option>
+                            <option value="Colleague">{t('colleague')}</option>
                          </select>
                       </div>
                       <div className="flex flex-col gap-1.5">
-                         <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Email Address</span>
+                         <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t('emailAddress')}</span>
                          <input type="email" value={createData.email} onChange={e => setCreateData({...createData, email: e.target.value})} className="px-3 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm outline-none focus:border-indigo-500 transition" placeholder="Required for Archive Auth (Optional)" />
                       </div>
                    </div>
 
                    <button onClick={handleCreateContact} className="w-full mt-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition shadow-md shadow-indigo-600/20 active:scale-[0.98]">
-                      Save to Address Book
+                      {t('saveToAddressBook')}
                    </button>
                </motion.div>
             </motion.div>

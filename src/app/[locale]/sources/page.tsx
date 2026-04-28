@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Loader2, FileText, Trash2, Database, Clock, Bot } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useAuth } from "@/components/AuthProvider";
 import { fetchUserSources, deleteNotebookSource, NotebookSource, saveHighFidelityStories, saveChatHistory, deleteAllUserContacts, saveDashboardState } from "@/lib/mongo/db";
 import { deleteAllPineconeResourcesAction, embedStoriesToPineconeAction, extractHighFidelityStoriesAction } from "@/app/actions";
 
 export default function SourcesPage() {
+  const t = useTranslations("SourcesPage");
   const { user, loading } = useAuth();
   const [sources, setSources] = useState<NotebookSource[]>([]);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
@@ -20,7 +22,7 @@ export default function SourcesPage() {
 
   const removeSource = async (targetSource: NotebookSource) => {
     if (!user || !targetSource.id) return;
-    if (!confirm(`Are you sure you want to completely delete "${targetSource.fileName}"? This will trigger a recompile of all associated Timeline Facts.`)) return;
+    if (!confirm(t("deleteConfirm", { fileName: targetSource.fileName }))) return;
     
     setIsDeleting(targetSource.id);
     
@@ -48,14 +50,14 @@ export default function SourcesPage() {
         }
     } catch (e) {
         console.error("Failed to delete source:", e);
-        alert("An error occurred while deleting the source.");
+        alert(t("errorDeleting"));
     } finally {
         setIsDeleting(null);
     }
   };
 
   const formatDate = (timestamp: any) => {
-      if (!timestamp) return "Unknown date";
+      if (!timestamp) return t("unknownDate");
       try {
           const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp.seconds * 1000);
           return new Intl.DateTimeFormat('en-US', {
@@ -63,12 +65,12 @@ export default function SourcesPage() {
               hour: 'numeric', minute: '2-digit'
           }).format(date);
       } catch (e) {
-          return "Unknown date";
+          return t("unknownDate");
       }
   };
 
   const formatSize = (bytes: number) => {
-      if (!bytes) return "Unknown size";
+      if (!bytes) return t("unknownSize");
       if (bytes < 1024) return bytes + " B";
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
       return (bytes / (1024 * 1024)).toFixed(1) + " MB";
@@ -87,9 +89,9 @@ export default function SourcesPage() {
           <div className="flex-1 border-l border-zinc-200 dark:border-zinc-800 pl-4 flex items-center justify-between">
               <div>
                   <h1 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-zinc-100">
-                      Primary Sources
+                      {t("primarySources")}
                   </h1>
-                  <span className="text-xs text-zinc-500 font-medium">{sources.length} active documents mapped</span>
+                  <span className="text-xs text-zinc-500 font-medium">{t("activeDocuments", { count: sources.length })}</span>
               </div>
           </div>
       </header>
@@ -101,9 +103,9 @@ export default function SourcesPage() {
                <Bot size={18} />
             </div>
             <div>
-                <h3 className="font-semibold text-sm text-indigo-900 dark:text-indigo-100 mb-1">On-Demand Chat Reconstruction</h3>
+                <h3 className="font-semibold text-sm text-indigo-900 dark:text-indigo-100 mb-1">{t("onDemandReconstruction")}</h3>
                 <p className="text-[13px] text-indigo-800/80 dark:text-indigo-300/80 leading-relaxed max-w-3xl">
-                   Reading a document for the very first time will dynamically task the AI to rebuild raw, unformatted text blocks natively back into an interactive conversational dialogue. This "on-demand" extraction prevents severe computation delays during initial file uploads and automatically caches the formatted script back to your cloud vault permanently.
+                   {t("onDemandReconstructionDesc")}
                 </p>
             </div>
          </div>
@@ -112,17 +114,17 @@ export default function SourcesPage() {
             <table className="w-full text-left border-collapse min-w-[600px]">
                <thead>
                   <tr className="bg-zinc-50 dark:bg-zinc-900/40 border-b border-zinc-200 dark:border-zinc-800 text-[10px] uppercase tracking-wider text-zinc-400 font-bold">
-                     <th className="px-6 py-4">Resource Name</th>
-                     <th className="px-6 py-4"><div className="flex items-center gap-1.5"><Database size={12}/> Size</div></th>
-                     <th className="px-6 py-4"><div className="flex items-center gap-1.5"><Clock size={12}/> Uploaded At</div></th>
-                     <th className="px-6 py-4 text-right">Actions</th>
+                     <th className="px-6 py-4">{t("resourceName")}</th>
+                     <th className="px-6 py-4"><div className="flex items-center gap-1.5"><Database size={12}/> {t("size")}</div></th>
+                     <th className="px-6 py-4"><div className="flex items-center gap-1.5"><Clock size={12}/> {t("uploadedAt")}</div></th>
+                     <th className="px-6 py-4 text-right">{t("actions")}</th>
                   </tr>
                </thead>
                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
                   {sources.length === 0 ? (
                      <tr>
                         <td colSpan={4} className="px-6 py-16 text-center text-zinc-500 font-medium bg-zinc-50/50 dark:bg-zinc-900/10">
-                           No primary sources uploaded yet. Return to the dashboard to begin archiving.
+                           {t("noPrimarySources")}
                         </td>
                      </tr>
                   ) : sources.map(src => (
@@ -136,7 +138,7 @@ export default function SourcesPage() {
                                  <span className="font-bold text-sm text-zinc-800 dark:text-zinc-200">{src.fileName}</span>
                                  {src.parsedContent && (
                                    <span className="text-[10px] uppercase tracking-widest font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded inline-block mt-1 w-max">
-                                     Reconstructed
+                                     {t("reconstructed")}
                                    </span>
                                  )}
                               </div>
@@ -152,13 +154,13 @@ export default function SourcesPage() {
                            <div className="flex items-center justify-end gap-2">
                               <Link 
                                 href={`/sources/${src.id}`}
-                                title="Read Transcript"
+                                title={t("readTranscriptTitle")}
                                 className="p-2.5 text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/20 dark:hover:bg-indigo-900/40 rounded-xl transition font-semibold text-[11px] uppercase tracking-wide flex items-center gap-1.5"
                               >
-                                 Read Script
+                                 {t("readScript")}
                               </Link>
                               <button 
-                                title="Delete Source"
+                                title={t("deleteSourceTitle")}
                                 onClick={() => removeSource(src)}
                                 disabled={isDeleting === src.id}
                                 className="p-2.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition disabled:opacity-50"

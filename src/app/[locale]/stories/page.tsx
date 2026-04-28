@@ -13,6 +13,7 @@ import { extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, gene
 import { computeCentroidMath, analyzeCrossMetricPattern, RECOGNIZED_ERAS } from "@/lib/math";
 import { useOnboarding } from "@/components/OnboardingProvider";
 import { InfoTooltip } from "@/components/InfoTooltip";
+import { useTranslations } from 'next-intl';
 
 const ERA_ORDER: Record<string, number> = {
   "Childhood": 1,
@@ -117,6 +118,7 @@ const MOCK_STORIES: HighFidelityStory[] = [
 ];
 
 export default function StoriesPage() {
+  const t = useTranslations('StoriesPage');
   const { user, loading } = useAuth();
   
   const [stories, setStories] = useState<HighFidelityStory[]>([]);
@@ -475,13 +477,13 @@ export default function StoriesPage() {
         <div className="border-b border-zinc-200 dark:border-zinc-800 pb-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div className="flex flex-col gap-3 max-w-2xl">
             <div className="inline-flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-widest text-xs">
-              <BookOpen size={14} /> High-Fidelity Archive
+              <BookOpen size={14} /> {t('highFidelityArchive')}
             </div>
             <h1 className="text-4xl md:text-5xl font-extrabold text-zinc-900 dark:text-white tracking-tight leading-tight">
-              Compiled Stories
+              {t('compiledStories')}
             </h1>
             <p className="text-lg text-zinc-500 dark:text-zinc-400">
-              This timeline visualizes your raw transcripts synthesized into categorized narrative moments. Syncing will only scan new documents.
+              {t('compiledStoriesDesc')}
             </p>
           </div>
 
@@ -492,16 +494,16 @@ export default function StoriesPage() {
               className="flex-shrink-0 flex items-center justify-center gap-2 px-6 py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-2xl shadow-xl shadow-indigo-600/20 transition-all hover:-translate-y-1 w-full sm:w-auto text-sm"
             >
               {isAnalyzing ? (
-                <><Loader2 size={18} className="animate-spin" /> Compiling...</>
+                <><Loader2 size={18} className="animate-spin" /> {t('compiling')}</>
               ) : (
-                <><Library size={18} /> Sync New Files</>
+                <><Library size={18} /> {t('syncNewFiles')}</>
               )}
             </button>
             <button 
                 onClick={() => setIsStoryboardOpen(true)}
                 className="flex flex-shrink-0 items-center justify-center gap-2 px-6 py-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-800 dark:text-zinc-200 font-bold rounded-2xl shadow-sm transition-all hover:-translate-y-1 w-full sm:w-auto text-sm"
               >
-               <Edit3 size={18} /> Edit Timeline
+               <Edit3 size={18} /> {t('editTimeline')}
             </button>
             <div className="flex flex-col gap-2 w-full sm:w-auto">
                 <button 
@@ -553,7 +555,7 @@ export default function StoriesPage() {
                   disabled={isAnalyzing}
                   className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed font-bold rounded-xl transition-all text-xs w-full sm:w-auto"
                 >
-                  <Sparkles size={14}/> Regenerate Insights Only
+                  <Sparkles size={14}/> {t('regenerateInsightsOnly')}
                 </button>
                 <button 
                   onClick={() => {
@@ -562,7 +564,7 @@ export default function StoriesPage() {
                   disabled={isAnalyzing}
                   className="flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900 hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 border border-zinc-200 dark:border-zinc-800 hover:border-red-200 dark:hover:border-red-900/50 disabled:opacity-50 disabled:cursor-not-allowed font-bold rounded-xl transition-all text-xs w-full sm:w-auto"
                 >
-                  Force Full Re-Scan
+                  {t('forceFullReScan')}
                 </button>
             </div>
           </div>
@@ -575,18 +577,15 @@ export default function StoriesPage() {
           {!hasScanned && !isAnalyzing && stories.length === 0 && (
             <div className="bg-indigo-50 dark:bg-indigo-950/20 rounded-3xl p-8 md:p-12 border border-indigo-100 dark:border-indigo-900/50 flex flex-col items-center justify-center text-center space-y-4">
               <Sparkles className="w-12 h-12 text-indigo-400 animate-pulse" />
-              <h2 className="text-2xl font-bold text-indigo-950 dark:text-indigo-300">Your Timeline is Waiting</h2>
-              <p className="text-indigo-700 dark:text-indigo-400 max-w-md">
-                 Click "Analyze Archives" above to instruct the AI to build dynamic High-Fidelity stories straight from your uploaded journals and interview transcripts. <br/><br/>
-                 <span className="text-xs opacity-70">For the UI Gamification preview, the sample data lives below. It will be replaced when you process real files!</span>
-              </p>
+              <h2 className="text-2xl font-bold text-indigo-950 dark:text-indigo-300">{t('timelineWaiting')}</h2>
+              <p className="text-indigo-700 dark:text-indigo-400 max-w-md" dangerouslySetInnerHTML={{ __html: t('timelineWaitingDesc') }} />
             </div>
           )}
 
           {isAnalyzing && (
             <div className="h-64 flex flex-col items-center justify-center space-y-4">
                <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
-               <p className="font-medium text-zinc-500 animate-pulse">The AI is synthetically reading your entire Legacy Vault...</p>
+               <p className="font-medium text-zinc-500 animate-pulse">{t('aiReadingVault')}</p>
             </div>
           )}
 
@@ -609,18 +608,18 @@ export default function StoriesPage() {
                     const w_intensity = impact?.emotional_intensity || 2;
                     let dotClass = "absolute left-[26px] md:left-[134px] top-6 w-5 h-5 bg-indigo-600 text-white rounded-full border-4 border-[#F3F4F6] dark:border-[#0f0f0f] shadow flex items-center justify-center";
                     let innerClass = "w-1.5 h-1.5 bg-white rounded-full";
-                    let tagText = "Snapshot";
+                    let tagText = t('snapshot');
                     let tagClass = "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border-zinc-200 dark:border-zinc-700";
                     
                     if (w_intensity >= 5) {
                        dotClass = "absolute left-[20px] md:left-[128px] top-4 w-8 h-8 bg-amber-500 text-white rounded-full border-4 border-[#F3F4F6] dark:border-[#0f0f0f] shadow-[0_0_20px_rgba(245,158,11,0.6)] flex items-center justify-center z-10";
                        innerClass = "w-3 h-3 bg-white rounded-full animate-pulse";
-                       tagText = "Core Memory";
+                       tagText = t('coreMemory');
                        tagClass = "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/50";
                     } else if (w_intensity >= 3) {
                        dotClass = "absolute left-[24px] md:left-[132px] top-5 w-6 h-6 bg-indigo-500 text-white rounded-full border-4 border-[#F3F4F6] dark:border-[#0f0f0f] shadow-lg shadow-indigo-500/40 flex items-center justify-center";
                        innerClass = "w-2 h-2 bg-white rounded-full";
-                       tagText = "Pivot Event";
+                       tagText = t('pivotEvent');
                        tagClass = "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 border-indigo-100 dark:border-indigo-800/50";
                     }
 
@@ -634,7 +633,7 @@ export default function StoriesPage() {
                 
                 {/* Era Tag */}
                 <div className="absolute left-0 w-24 md:w-[124px] top-5 text-right pr-4 hidden md:block">
-                  <span className="text-sm font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">{story.era || "Undefined"}</span>
+                  <span className="text-sm font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">{story.era || t('undefined')}</span>
                 </div>
 
                 {/* The Story Card Face */}
@@ -646,11 +645,11 @@ export default function StoriesPage() {
                 >
                   <div className="flex flex-wrap gap-2 items-center mb-3">
                      <span className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-md border ${tagClass}`}>
-                        {tagText} {impact?.duration_weight ? `(Weight: x${(((w_intensity + (impact.narrative_complexity || 2))/2) * impact.duration_weight).toFixed(1)})` : ''}
+                        {tagText} {impact?.duration_weight ? t('weight', { weight: (((w_intensity + (impact.narrative_complexity || 2))/2) * impact.duration_weight).toFixed(1) }) : ''}
                      </span>
                      {story.gapPrompt && (
                        <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-md border bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900 flex items-center gap-1 shadow-sm animate-pulse">
-                          <AlertTriangle size={10} /> Narrative Gap
+                          <AlertTriangle size={10} /> {t('narrativeGap')}
                        </span>
                      )}
                   </div>
@@ -659,7 +658,7 @@ export default function StoriesPage() {
                     "{story.synopsis}"
                   </p>
                   <p className="text-[11px] uppercase tracking-wider font-bold text-indigo-500 flex items-center gap-1.5 mt-6 opacity-0 group-hover:opacity-100 transition-opacity">
-                     <BookOpen size={14}/> Read Detailed Memory
+                     <BookOpen size={14}/> {t('readDetailedMemory')}
                   </p>
                 </motion.div>
               </div>
@@ -672,7 +671,7 @@ export default function StoriesPage() {
             <div className="space-y-8 xl:pt-0 pt-16">
               <div className="flex items-center gap-2 mb-6 border-b border-zinc-200 dark:border-zinc-800 pb-4">
                 <Sparkles size={18} className="text-amber-500" />
-                <h3 className="text-xl font-bold text-zinc-800 dark:text-zinc-200">Philosophies & Skills</h3>
+                <h3 className="text-xl font-bold text-zinc-800 dark:text-zinc-200">{t('philosophiesAndSkills')}</h3>
               </div>
               
               <div className="space-y-8">
@@ -684,14 +683,14 @@ export default function StoriesPage() {
                     return (
                       <div className="bg-amber-50/50 dark:bg-amber-950/10 rounded-3xl p-8 border border-dashed border-amber-200 dark:border-amber-900 flex flex-col items-center justify-center text-center">
                         <Sparkles className="text-amber-300 dark:text-amber-700/50 w-10 h-10 mb-3" />
-                        <h4 className="font-bold text-amber-900 dark:text-amber-500 mb-2">No Generic Themes Yet</h4>
-                        <p className="text-sm text-amber-700 dark:text-amber-600/80">When the AI identifies timeless life advice, philosophies, or recipes that do not fit a specific era, they will appear here as standalone cards.</p>
+                        <h4 className="font-bold text-amber-900 dark:text-amber-500 mb-2">{t('noGenericThemesYet')}</h4>
+                        <p className="text-sm text-amber-700 dark:text-amber-600/80">{t('noGenericThemesDesc')}</p>
                       </div>
                     );
                   }
 
                   const grouped = timeless.reduce((acc, story) => {
-                     const cat = story.timelessCategory || "General Philosophy";
+                     const cat = story.timelessCategory || t('generalPhilosophy');
                      if (!acc[cat]) acc[cat] = [];
                      acc[cat].push(story);
                      return acc;
@@ -717,7 +716,7 @@ export default function StoriesPage() {
                              <div className="flex flex-wrap gap-2 items-center mb-3">
                                 {story.gapPrompt && (
                                   <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-md border bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900 flex items-center gap-1 shadow-sm animate-pulse">
-                                     <AlertTriangle size={10} /> Narrative Gap
+                                     <AlertTriangle size={10} /> {t('narrativeGap')}
                                   </span>
                                 )}
                              </div>
@@ -726,7 +725,7 @@ export default function StoriesPage() {
                                "{story.synopsis}"
                              </p>
                              <p className="text-[11px] uppercase tracking-wider font-bold text-amber-500 flex items-center gap-1.5 mt-6 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <BookOpen size={14}/> Read Detailed Memory
+                                <BookOpen size={14}/> {t('readDetailedMemory')}
                              </p>
                            </motion.div>
                            ))}
@@ -756,11 +755,11 @@ export default function StoriesPage() {
                 <Loader2 className="animate-spin text-indigo-200" size={24} />
                 <div>
                   <h4 className="font-bold flex items-center justify-between gap-4">
-                     Extracting High-Fidelity Stories
+                     {t('extractingHighFidelity')}
                      {eta && <span className="text-xs font-medium text-emerald-300 bg-emerald-900/40 px-2 py-0.5 rounded border border-emerald-500/30 font-mono tracking-tight">{eta}</span>}
                   </h4>
                   <p className="text-sm text-indigo-200">
-                     {mappingProgress || "The AI is synthetically reading your entire Legacy Vault..."} Please do not close or refresh.
+                     {mappingProgress || t('aiReadingVault')} {t('pleaseDoNotClose')}
                   </p>
                 </div>
               </div>
@@ -807,7 +806,7 @@ export default function StoriesPage() {
                    {/* 1. Detailed Narrative */}
                    <div>
                      <h3 className="text-sm font-bold text-indigo-500 uppercase tracking-widest flex items-center gap-2 mb-4">
-                        <BookOpen size={16} /> Detailed Memory
+                        <BookOpen size={16} /> {t('detailedMemory')}
                      </h3>
                      <div className="prose dark:prose-invert max-w-none text-zinc-700 dark:text-zinc-300 leading-relaxed">
                         {selectedStory.detailedNarrative ? (
@@ -828,7 +827,7 @@ export default function StoriesPage() {
                                <AlertTriangle size={18} />
                             </div>
                             <div className="flex flex-col w-full">
-                               <h4 className="font-bold text-rose-700 dark:text-rose-400 text-sm uppercase tracking-wider mb-2">Narrative Gap Detected</h4>
+                               <h4 className="font-bold text-rose-700 dark:text-rose-400 text-sm uppercase tracking-wider mb-2">{t('narrativeGapDetected')}</h4>
                                <p className="text-zinc-800 dark:text-zinc-200 text-sm italic mb-4 leading-relaxed font-serif">"{selectedStory.gapPrompt}"</p>
                                <button 
                                  onClick={() => {
@@ -838,7 +837,7 @@ export default function StoriesPage() {
                                  }}
                                  className="self-start text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:scale-95 transition-transform px-4 py-2 rounded-full shadow-md"
                                >
-                                  Ask the AI Interviewer
+                                  {t('askAiInterviewer')}
                                </button>
                             </div>
                          </div>
@@ -851,7 +850,7 @@ export default function StoriesPage() {
                       {/* Linguistic Corrections */}
                       {selectedStory.linguisticCorrections && selectedStory.linguisticCorrections.length > 0 && (
                         <div className="col-span-1 md:col-span-2 mb-2 p-4 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
-                          <h4 className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest flex items-center gap-1.5 mb-3"><Globe size={12} /> AI Phonetic Correction</h4>
+                          <h4 className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest flex items-center gap-1.5 mb-3"><Globe size={12} /> {t('aiPhoneticCorrection')}</h4>
                           <div className="flex flex-wrap gap-2">
                             {selectedStory.linguisticCorrections.map((correction, idx) => (
                               <div key={idx} className="bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-indigo-800 text-xs px-3 py-1.5 rounded-md flex items-center gap-2">
@@ -868,7 +867,7 @@ export default function StoriesPage() {
                       {/* Psychometric Scorecard */}
                       <div>
                         <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-4">
-                          <Target size={14} /> Psychometric Profile
+                          <Target size={14} /> {t('psychometricProfile')}
                         </h3>
                         <div className="space-y-4">
                           {selectedStory.psychometrics?.map((metric, idx) => (
@@ -887,23 +886,23 @@ export default function StoriesPage() {
                       {/* Completeness Rubric */}
                       <div>
                         <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-4">
-                          <Crosshair size={14} /> Completeness Rubric
+                          <Crosshair size={14} /> {t('completenessRubric')}
                         </h3>
                         <div className="space-y-3">
                           <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900">
-                            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">Context<br /><span className="text-xs opacity-75">(The Setup)</span></span>
+                            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight" dangerouslySetInnerHTML={{ __html: t('contextSetup') }} />
                             {selectedStory.rubric?.context ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-zinc-300 dark:text-zinc-700" />}
                           </div>
                           <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900">
-                            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">Conflict<br /><span className="text-xs opacity-75">(The Pivot)</span></span>
+                            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight" dangerouslySetInnerHTML={{ __html: t('conflictPivot') }} />
                             {selectedStory.rubric?.conflict ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-zinc-300 dark:text-zinc-700" />}
                           </div>
                           <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900">
-                            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">Resolution<br /><span className="text-xs opacity-75">(The Outcome)</span></span>
+                            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight" dangerouslySetInnerHTML={{ __html: t('resolutionOutcome') }} />
                             {selectedStory.rubric?.resolution ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-zinc-300 dark:text-zinc-700" />}
                           </div>
                           <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-transparent">
-                            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight">Extraction<br /><span className="text-xs opacity-75">(The Moral)</span></span>
+                            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 leading-tight" dangerouslySetInnerHTML={{ __html: t('extractionMoral') }} />
                             {selectedStory.extraction?.present ? <CheckCircle2 size={16} className="text-emerald-500" /> : <AlertTriangle size={16} className="text-red-500" />}
                           </div>
                         </div>
@@ -914,13 +913,13 @@ export default function StoriesPage() {
                         <div className="col-span-1 md:col-span-2 mt-4 p-4 rounded-xl bg-orange-50 dark:bg-orange-950/20 border border-orange-100 dark:border-orange-900/50">
                           <div className="flex items-center gap-2 mb-3 pb-2 border-b border-orange-200/50 dark:border-orange-900/50">
                              <Globe size={14} className="text-orange-500" />
-                             <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wider">Wisdom Taxonomy</span>
+                             <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wider">{t('wisdomTaxonomy')}</span>
                              <div className="ml-auto flex items-center gap-1.5">
                                <span className="text-[10px] bg-white dark:bg-zinc-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded shadow-sm font-semibold border border-orange-100 dark:border-orange-900">{selectedStory.extraction.primaryCategory}</span>
                                {selectedStory.extraction.secondaryCategory !== "None" && selectedStory.extraction.secondaryCategory !== selectedStory.extraction.primaryCategory && (
                                  <span className="text-[10px] bg-orange-100/50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 px-2 py-0.5 rounded font-medium">{selectedStory.extraction.secondaryCategory}</span>
                                )}
-                               <span className="text-[10px] bg-orange-200/50 dark:bg-orange-800/40 text-orange-800 dark:text-orange-200 px-1.5 py-0.5 rounded font-bold ml-1">Lvl {selectedStory.extraction.depthLevel}</span>
+                               <span className="text-[10px] bg-orange-200/50 dark:bg-orange-800/40 text-orange-800 dark:text-orange-200 px-1.5 py-0.5 rounded font-bold ml-1">{t('lvl', { level: selectedStory.extraction.depthLevel })}</span>
                              </div>
                           </div>
                           
@@ -1003,7 +1002,7 @@ export default function StoriesPage() {
           >
             <div className="flex items-center justify-between mb-3 border-b border-zinc-100 dark:border-zinc-800 pb-2">
               <h4 className="font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1.5 text-sm">
-                <Sparkles size={14} /> Correct Fact or Identity
+                <Sparkles size={14} /> {t('correctFactIdentity')}
               </h4>
               <button onClick={() => setSelectionContext(null)} className="text-zinc-400 hover:text-zinc-600">
                 <X size={14} />
@@ -1015,13 +1014,13 @@ export default function StoriesPage() {
             
             {/* Identity Resolver Mode */}
             <div className="mb-4 bg-zinc-50 dark:bg-[#121212] p-3 rounded-lg border border-zinc-200 dark:border-zinc-800">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">Link as Alias to Address Book</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">{t('linkAsAlias')}</p>
               <select
                  value={selectedContactAliasId}
                  onChange={(e) => setSelectedContactAliasId(e.target.value)}
                  className="w-full text-sm bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-md p-2 mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
               >
-                 <option value="">Select an Identity to overwrite this text...</option>
+                 <option value="">{t('selectIdentityOverwrite')}</option>
                  {contacts.map(c => (
                     <option key={c.id} value={c.id}>{c.preferredName || c.firstName || c.originalName} {c.lastName || ""}</option>
                  ))}
@@ -1032,17 +1031,17 @@ export default function StoriesPage() {
                  className="w-full justify-center flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-700 font-bold text-xs rounded-md transition disabled:opacity-50"
               >
                  {isSavingCorrection ? <Loader2 size={12} className="animate-spin"/> : <Globe size={12}/>}
-                 Map Alias & Rewrite Fast
+                 {t('mapAliasRewrite')}
               </button>
             </div>
 
             {/* General Content Edit Mode */}
             <div>
-               <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">General Content Correction</p>
+               <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">{t('generalContentCorrection')}</p>
                <textarea 
                  value={overrideInput}
                  onChange={(e) => setOverrideInput(e.target.value)}
-                 placeholder="Type the exact text to replace the highlight with..."
+                 placeholder={t('typeExactText')}
                  className="w-full text-sm bg-zinc-50 dark:bg-[#121212] border border-zinc-200 dark:border-zinc-800 rounded-lg p-3 min-h-[60px] mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                />
                <button 
@@ -1051,7 +1050,7 @@ export default function StoriesPage() {
                  className="w-full justify-center flex items-center gap-2 px-3 py-1.5 bg-zinc-800 text-white hover:bg-zinc-900 font-bold text-xs rounded-md transition disabled:opacity-50"
                >
                  {isSavingCorrection ? <Loader2 size={12} className="animate-spin"/> : <Target size={12}/>}
-                 Rapid Override
+                 {t('rapidOverride')}
                </button>
             </div>
             
@@ -1075,6 +1074,7 @@ export default function StoriesPage() {
 }
 
 function StoryboardModal({ stories, setStories, userId, onClose }: any) {
+  const t = useTranslations('StoriesPage');
   const [localStories, setLocalStories] = useState<any[]>(() => {
      return [...stories].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0)).map((s, i) => ({
         ...s,
@@ -1130,13 +1130,13 @@ function StoryboardModal({ stories, setStories, userId, onClose }: any) {
          {/* HEADER */}
          <div className="flex flex-col md:flex-row md:items-center justify-between p-6 border-b border-zinc-200 dark:border-zinc-800 gap-4">
             <div>
-               <h2 className="text-2xl font-bold flex items-center gap-2"><Library /> Storyboard Editor</h2>
-               <p className="text-sm text-zinc-500">Drag to reorder chronologically within eras, or change an event's classification.</p>
+               <h2 className="text-2xl font-bold flex items-center gap-2"><Library /> {t('storyboardEditor')}</h2>
+               <p className="text-sm text-zinc-500">{t('storyboardEditorDesc')}</p>
             </div>
             <div className="flex gap-3 shrink-0">
-               <button onClick={onClose} disabled={isSaving} className="px-4 py-2 font-bold rounded-xl text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition border border-zinc-200 dark:border-zinc-800">Cancel</button>
+               <button onClick={onClose} disabled={isSaving} className="px-4 py-2 font-bold rounded-xl text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition border border-zinc-200 dark:border-zinc-800">{t('cancel')}</button>
                <button onClick={saveChanges} disabled={isSaving} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-bold transition">
-                 {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save Timeline
+                 {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} {t('saveTimeline')}
                </button>
             </div>
          </div>
@@ -1198,7 +1198,7 @@ function StoryboardModal({ stories, setStories, userId, onClose }: any) {
                              </Reorder.Item>
                           ))}
                           {eraStories.length === 0 && (
-                             <div className="border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl h-24 flex items-center justify-center text-xs text-zinc-400 font-bold uppercase tracking-widest bg-zinc-50/50 dark:bg-zinc-900/50">Empty</div>
+                             <div className="border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl h-24 flex items-center justify-center text-xs text-zinc-400 font-bold uppercase tracking-widest bg-zinc-50/50 dark:bg-zinc-900/50">{t('empty')}</div>
                           )}
                         </Reorder.Group>
                       </div>

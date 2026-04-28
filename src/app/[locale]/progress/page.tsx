@@ -10,6 +10,7 @@ import { fetchHighFidelityStories, fetchLegacyInsights } from "@/lib/mongo/db";
 import { HighFidelityStory } from "@/lib/rag";
 import { computeCentroidMath, RECOGNIZED_ERAS, LABELS } from "@/lib/math";
 import ReactMarkdown from "react-markdown";
+import { useTranslations } from 'next-intl';
 
 // SVG Geometry for Hexagon
 const size = 300;
@@ -23,6 +24,7 @@ const getPoint = (angle: number, length: number) => ({
 });
 
 export default function ProgressPage() {
+  const t = useTranslations('ProgressPage');
   const { user, loading } = useAuth();
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollInterval = useRef<NodeJS.Timeout | null>(null);
@@ -48,12 +50,12 @@ export default function ProgressPage() {
   const [precompiledInsights, setPrecompiledInsights] = useState<any>(null);
 
   const [lifeCoverage, setLifeCoverage] = useState([
-    { era: "Childhood (0-12)", key: "Childhood", mapped: 0, count: 0 },
-    { era: "Teens (13-19)", key: "Teens", mapped: 0, count: 0 },
-    { era: "Twenties", key: "Twenties", mapped: 0, count: 0 },
-    { era: "Thirties", key: "Thirties", mapped: 0, count: 0 },
-    { era: "Forties", key: "Forties", mapped: 0, count: 0 },
-    { era: "Fifties+", key: "Fifties+", mapped: 0, count: 0 },
+    { era: t('childhood'), key: "Childhood", mapped: 0, count: 0 },
+    { era: t('teens'), key: "Teens", mapped: 0, count: 0 },
+    { era: t('twenties'), key: "Twenties", mapped: 0, count: 0 },
+    { era: t('thirties'), key: "Thirties", mapped: 0, count: 0 },
+    { era: t('forties'), key: "Forties", mapped: 0, count: 0 },
+    { era: t('fifties'), key: "Fifties+", mapped: 0, count: 0 },
   ]);
 
   // Hexagon Dynamics
@@ -83,12 +85,12 @@ export default function ProgressPage() {
 
         // Map Module 1 Coverage
         const newCoverage = [
-          { era: "Childhood (0-12)", key: "Childhood", mapped: 0, count: 0 },
-          { era: "Teens (13-19)", key: "Teens", mapped: 0, count: 0 },
-          { era: "Twenties", key: "Twenties", mapped: 0, count: 0 },
-          { era: "Thirties", key: "Thirties", mapped: 0, count: 0 },
-          { era: "Forties", key: "Forties", mapped: 0, count: 0 },
-          { era: "Fifties+", key: "Fifties+", mapped: 0, count: 0 },
+          { era: t('childhood'), key: "Childhood", mapped: 0, count: 0 },
+          { era: t('teens'), key: "Teens", mapped: 0, count: 0 },
+          { era: t('twenties'), key: "Twenties", mapped: 0, count: 0 },
+          { era: t('thirties'), key: "Thirties", mapped: 0, count: 0 },
+          { era: t('forties'), key: "Forties", mapped: 0, count: 0 },
+          { era: t('fifties'), key: "Fifties+", mapped: 0, count: 0 },
         ];
         
         let totalCount = 0;
@@ -165,13 +167,13 @@ export default function ProgressPage() {
         {/* Header Block */}
         <div className="border-b border-zinc-200 dark:border-zinc-800 pb-8 flex flex-col gap-3">
           <div className="inline-flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-widest text-xs">
-            <Activity size={14} /> Legacy Progress
+            <Activity size={14} /> {t('legacyProgress')}
           </div>
           <h1 className="text-4xl md:text-5xl font-extrabold text-zinc-900 dark:text-white tracking-tight leading-tight">
-            Building Your Monument
+            {t('buildingMonument')}
           </h1>
           <p className="text-lg text-zinc-500 dark:text-zinc-400 max-w-2xl">
-            You aren't taking a test. You are mapping a life. Discover the areas of your narrative that shine the brightest, and uncover the gaps waiting for a story.
+            {t('buildingMonumentDesc')}
           </p>
         </div>
 
@@ -184,10 +186,10 @@ export default function ProgressPage() {
             </div>
 
             <h2 className="text-xl font-bold flex items-center gap-2 mb-2 z-10 relative">
-              <Compass size={20} className="text-blue-500"/> Life Coverage
+              <Compass size={20} className="text-blue-500"/> {t('lifeCoverage')}
             </h2>
             <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-8 z-10 relative max-w-sm">
-              Visualizing the density of your archived stories across chronological eras based on AI extraction.
+              {t('lifeCoverageDesc')}
             </p>
 
             <div className="space-y-6 z-10 relative">
@@ -195,7 +197,7 @@ export default function ProgressPage() {
                 <div key={idx} className="relative">
                   <div className="flex justify-between items-end mb-1.5">
                     <span className="text-sm font-bold text-zinc-700 dark:text-zinc-300">{era.era}</span>
-                    <span className="text-xs font-medium text-zinc-500">{era.count} {era.count === 1 ? 'story' : 'stories'} ({era.mapped}%)</span>
+                    <span className="text-xs font-medium text-zinc-500">{era.count} {era.count === 1 ? t('story') : t('stories')} ({era.mapped}%)</span>
                   </div>
                   <div className="w-full h-3 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
                     <motion.div 
@@ -207,7 +209,7 @@ export default function ProgressPage() {
                   </div>
                   {era.mapped < 30 && (
                     <p className="text-[11px] text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1 font-medium">
-                      <Sparkles size={10} /> A narrative gap waiting to be filled in your {era.era.split(' ')[0]}.
+                      <Sparkles size={10} /> {t('narrativeGap', { era: era.era.split(' ')[0] })}
                     </p>
                   )}
                 </div>
@@ -215,10 +217,10 @@ export default function ProgressPage() {
             </div>
 
             <div className="mt-8 p-4 bg-indigo-50 dark:bg-indigo-950/30 rounded-2xl border border-indigo-100 dark:border-indigo-900/50">
-               <h3 className="text-sm font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-2 mb-1"><Edit3 size={14} /> Architect Prompt</h3>
+               <h3 className="text-sm font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-2 mb-1"><Edit3 size={14} /> {t('architectPrompt')}</h3>
                <p className="text-xs text-indigo-700 dark:text-indigo-400/80 leading-relaxed">
-                 You have excellent coverage of certain life periods, but others remain largely undocumented in the High-Fidelity cache. 
-                 <Link href="/stories" className="font-bold underline underline-offset-2 ml-1 hover:text-indigo-500">Consider uploading stories to map those timelines!</Link>
+                 {t('architectPromptDesc')} 
+                 <Link href="/stories" className="font-bold underline underline-offset-2 ml-1 hover:text-indigo-500">{t('considerUploading')}</Link>
                </p>
             </div>
             
@@ -230,12 +232,12 @@ export default function ProgressPage() {
                        <div className="w-12 h-12 bg-zinc-200 dark:bg-zinc-700 rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                           <Sparkles size={20} className="text-zinc-500 dark:text-zinc-400" />
                        </div>
-                       <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-widest mb-2">The Architect's Study</h3>
+                       <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-widest mb-2">{t('theArchitectsStudy')}</h3>
                        <p className="text-xs text-zinc-500 max-w-xs mx-auto">
-                          The AI has synthesized a cross-metric paradox examining the friction between your actions and reflections. 
+                          {t('theArchitectsStudyDesc')}
                        </p>
                        <button className="mt-4 px-4 py-1.5 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-xs font-bold rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                          Unseal Observation
+                          {t('unsealObservation')}
                        </button>
                     </div>
                  ) : (
@@ -276,10 +278,10 @@ export default function ProgressPage() {
               </div>
             ) : (
               <div className="w-full mt-4 p-4 bg-emerald-50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-100 dark:border-emerald-900/50 z-10 relative">
-                 <h3 className="text-sm font-bold text-emerald-900 dark:text-emerald-400 flex items-center gap-2 mb-1"><MessageSquare size={14} /> Round Out Your Legacy</h3>
+                 <h3 className="text-sm font-bold text-emerald-900 dark:text-emerald-400 flex items-center gap-2 mb-1"><MessageSquare size={14} /> {t('roundOutLegacy')}</h3>
                  <p className="text-xs text-emerald-700 dark:text-emerald-400/80 leading-relaxed">
-                   The AI notes your <span className="font-bold">{lowestCategory}</span> dimension is structurally your smallest mapped node overall. <br/><br/>
-                   Can you drop a story into the archive about a time you engaged heavily with the {lowestCategory} side of life? <Link href="/stories" className="font-bold hover:text-emerald-500 underline underline-offset-2">Go to Archive</Link>
+                   <span dangerouslySetInnerHTML={{ __html: t('roundOutLegacyDesc1', { category: lowestCategory }) }} />
+                   {t('roundOutLegacyDesc2', { category: lowestCategory })} <Link href="/stories" className="font-bold hover:text-emerald-500 underline underline-offset-2">{t('goToArchive')}</Link>
                  </p>
               </div>
             )}
@@ -290,10 +292,10 @@ export default function ProgressPage() {
             
             <div className="w-full">
               <h2 className="text-xl font-bold flex items-center gap-2 mb-2">
-                <Target size={20} className="text-emerald-500"/> Narrative Archetypes
+                <Target size={20} className="text-emerald-500"/> {t('narrativeArchetypes')}
               </h2>
               <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2">
-                Themes computed and dynamically synced from your Story Archive using the Holland Codes framework. Expand your hexagon by sharing different dimensions of your personality.
+                {t('narrativeArchetypesDesc')}
               </p>
             </div>
 
@@ -395,7 +397,7 @@ export default function ProgressPage() {
               <div className="w-full mt-6 bg-indigo-50 dark:bg-indigo-900/10 rounded-3xl p-6 border border-indigo-100 dark:border-indigo-800/30 shadow-md transition-all">
                 <div className="flex items-center gap-2 bg-indigo-100 dark:bg-indigo-800/30 px-3 py-1 rounded-full text-indigo-700 dark:text-indigo-300 text-[10px] font-bold uppercase tracking-widest w-max mb-4">
                   <Star size={12} className={activeEraIdx === 0 ? "text-amber-500" : "text-indigo-500"} />
-                  {activeEraIdx === 0 ? "All-Time Legacy Identity" : `${RECOGNIZED_ERAS[activeEraIdx].key} Era Identity`}
+                  {activeEraIdx === 0 ? t('allTimeLegacyIdentity') : t('eraIdentity', { era: RECOGNIZED_ERAS[activeEraIdx].key })}
                 </div>
                 
                 <AnimatePresence mode="popLayout" initial={false}>
@@ -412,11 +414,11 @@ export default function ProgressPage() {
 
                     <div className="grid grid-cols-2 gap-4 mb-4">
                        <div className="p-3 bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700">
-                         <span className="block text-[10px] uppercase font-bold text-zinc-500 tracking-wider mb-1">Primary Flow</span>
+                         <span className="block text-[10px] uppercase font-bold text-zinc-500 tracking-wider mb-1">{t('primaryFlow')}</span>
                          <span className="font-bold text-indigo-600 dark:text-indigo-400 text-lg">{activeArchetype.primaryRiasec}</span>
                        </div>
                        <div className="p-3 bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700">
-                         <span className="block text-[10px] uppercase font-bold text-zinc-500 tracking-wider mb-1">Secondary Flow</span>
+                         <span className="block text-[10px] uppercase font-bold text-zinc-500 tracking-wider mb-1">{t('secondaryFlow')}</span>
                          <span className="font-bold text-indigo-500/80 dark:text-indigo-300/80 text-lg">{activeArchetype.secondaryRiasec}</span>
                        </div>
                     </div>
@@ -454,7 +456,7 @@ export default function ProgressPage() {
                         ) : (
                            <div className="mt-4 pt-4 border-t border-indigo-200 dark:border-indigo-800/50">
                               <p className="text-sm text-indigo-900/60 dark:text-indigo-200/50 font-medium leading-relaxed italic border-l-2 border-indigo-400/50 pl-3">
-                                 The Oracle has not generated an insight for this explicitly. <Link href="/stories" className="underline underline-offset-2 hover:text-indigo-500 dark:hover:text-indigo-300">Run the Archivist</Link> to generate.
+                                 {t('oracleInsightMissing')} <Link href="/stories" className="underline underline-offset-2 hover:text-indigo-500 dark:hover:text-indigo-300">{t('runArchivist')}</Link> {t('toGenerate')}
                               </p>
                            </div>
                         )}
@@ -473,12 +475,12 @@ export default function ProgressPage() {
           <div className="flex items-start gap-4">
             <Info size={20} className="text-zinc-400 flex-shrink-0 mt-0.5" />
             <p>
-              <strong>Live Analytics:</strong> These visualizations are mapped precisely to the mathematical tags outputted dynamically by the Archivist AI when you compile your transcripts.
+              <strong>{t('liveAnalytics')}</strong> {t('liveAnalyticsDesc')}
             </p>
           </div>
           <Link href="/stories" className="mt-2 w-full flex items-center justify-center gap-2 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 py-3 rounded-xl border border-zinc-200 dark:border-zinc-700 shadow-sm transition font-semibold">
             <Library size={18} />
-            Return to High Fidelity Stories
+            {t('returnToHighFidelity')}
           </Link>
         </div>
 

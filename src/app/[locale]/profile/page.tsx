@@ -7,8 +7,10 @@ import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { fetchUserProfile, updateUserProfile, deleteUserAccount, type UserProfile } from "@/lib/mongo/db";
 import { signOut } from "next-auth/react";
+import { useTranslations } from 'next-intl';
 
 export default function ProfilePage() {
+  const t = useTranslations('ProfilePage');
   const { user, loading } = useAuth();
   
   const [profile, setProfile] = useState<Partial<UserProfile>>({});
@@ -52,10 +54,10 @@ export default function ProfilePage() {
     
     const success = await updateUserProfile(user.uid, cleanedProfile);
     if (success) {
-      setSaveMessage("Profile securely updated.");
+      setSaveMessage(t('profileUpdated'));
       setTimeout(() => setSaveMessage(""), 3000);
     } else {
-      setSaveMessage("Failed to update profile. Please try again.");
+      setSaveMessage(t('profileUpdateFailed'));
     }
     setIsSaving(false);
   };
@@ -70,7 +72,7 @@ export default function ProfilePage() {
     if (success) {
       await signOut({ callbackUrl: "/" });
     } else {
-      setSaveMessage("Failed to delete account. Please try again or contact support.");
+      setSaveMessage(t('deleteFailed'));
       setIsDeleting(false);
     }
   };
@@ -104,7 +106,7 @@ export default function ProfilePage() {
           href="/" 
           className="inline-flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
         >
-          <ArrowLeft size={16} /> Back to Dashboard
+          <ArrowLeft size={16} /> {t('backToDashboard')}
         </Link>
 
         {/* Profile Card */}
@@ -123,8 +125,8 @@ export default function ProfilePage() {
 
             <div className="pt-16 flex items-start justify-between">
               <div>
-                <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Legacy Profile</h1>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Contextual information for deeper narrative generation.</p>
+                <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{t('legacyProfile')}</h1>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{t('profileDesc')}</p>
               </div>
             </div>
 
@@ -133,17 +135,17 @@ export default function ProfilePage() {
               {/* Account Security (Read Only) */}
               <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-4">
-                  <Shield size={16}/> System Authentication
+                  <Shield size={16}/> {t('systemAuth')}
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                     <label className="block text-xs font-semibold text-zinc-500 mb-1">Email Address</label>
+                     <label className="block text-xs font-semibold text-zinc-500 mb-1">{t('emailAddress')}</label>
                      <div className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-800 rounded-xl bg-zinc-100 dark:bg-zinc-950 text-sm text-zinc-500 cursor-not-allowed truncate">
                        {user.email}
                      </div>
                   </div>
                   <div className="overflow-hidden">
-                     <label className="block text-xs font-semibold text-zinc-500 mb-1">Account ID</label>
+                     <label className="block text-xs font-semibold text-zinc-500 mb-1">{t('accountId')}</label>
                      <div className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-800 rounded-xl bg-zinc-100 dark:bg-zinc-950 text-sm text-zinc-500 cursor-not-allowed font-mono truncate">
                        {user.uid}
                      </div>
@@ -154,29 +156,29 @@ export default function ProfilePage() {
               {/* Naming & Identity */}
               <div className="border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-4">
-                  <User size={16}/> Identity <span className="text-xs font-normal text-zinc-400 ml-2">(Optional)</span>
+                  <User size={16}/> {t('identity')} <span className="text-xs font-normal text-zinc-400 ml-2">{t('optional')}</span>
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">First Name</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{t('firstName')}</label>
                     <input type="text" name="firstName" value={profile.firstName || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Eleanor" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Middle Name</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{t('middleName')}</label>
                     <input type="text" name="middleName" value={profile.middleName || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Grace" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Last Name</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{t('lastName')}</label>
                     <input type="text" name="lastName" value={profile.lastName || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Vance" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Birth Name / Former Name</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{t('formerName')}</label>
                     <input type="text" name="formerName" value={profile.formerName || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Smith" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Pronouns</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{t('pronouns')}</label>
                     <select name="pronouns" value={profile.pronouns || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
-                      <option value="">Select pronouns...</option>
+                      <option value="">{t('selectPronouns')}</option>
                       <option value="She/Her">She/Her</option>
                       <option value="He/Him">He/Him</option>
                       <option value="They/Them">They/Them</option>
@@ -184,9 +186,9 @@ export default function ProfilePage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Gender Identity</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{t('genderIdentity')}</label>
                     <select name="genderIdentity" value={profile.genderIdentity || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
-                      <option value="">Select identity...</option>
+                      <option value="">{t('selectIdentity')}</option>
                       <option value="Female">Female</option>
                       <option value="Male">Male</option>
                       <option value="Non-binary">Non-binary</option>
@@ -200,23 +202,23 @@ export default function ProfilePage() {
               {/* Origins & Location */}
               <div className="border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-4">
-                  <MapPin size={16}/> Origins & Location <span className="text-xs font-normal text-zinc-400 ml-2">(Optional)</span>
+                  <MapPin size={16}/> {t('originsLocation')} <span className="text-xs font-normal text-zinc-400 ml-2">{t('optional')}</span>
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-1"><Calendar size={14}/> Date of Birth</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-1"><Calendar size={14}/> {t('dateOfBirth')}</label>
                     <input type="date" name="dateOfBirth" value={profile.dateOfBirth || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 text-zinc-900 dark:text-zinc-100" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Place of Birth</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{t('placeOfBirth')}</label>
                     <input type="text" name="placeOfBirth" value={profile.placeOfBirth || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Kyoto, Japan" />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-1"><Globe2 size={14}/> Current Residence</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-1"><Globe2 size={14}/> {t('currentResidence')}</label>
                     <input type="text" name="residence" value={profile.residence || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. San Francisco, California" />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-1"><Users size={14}/> Cultural or Ethnic Heritage</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-1"><Users size={14}/> {t('culturalHeritage')}</label>
                     <input type="text" name="culturalHeritage" value={profile.culturalHeritage || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Irish-American, Han Chinese" />
                   </div>
                 </div>
@@ -225,15 +227,15 @@ export default function ProfilePage() {
               {/* Linguistic Profile */}
               <div className="border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-4">
-                  <MessageSquare size={16}/> Linguistic Profile <span className="text-xs font-normal text-zinc-400 ml-2">(Optional)</span>
+                  <MessageSquare size={16}/> {t('linguisticProfile')} <span className="text-xs font-normal text-zinc-400 ml-2">{t('optional')}</span>
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div className="md:col-span-1">
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Primary Language</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{t('primaryLanguage')}</label>
                     <input type="text" name="primaryLanguage" value={profile.primaryLanguage || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. English" />
                   </div>
                   <div className="md:col-span-1">
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Secondary Spoken Languages</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{t('secondaryLanguages')}</label>
                     <input type="text" name="secondaryLanguages" value={profile.secondaryLanguages || ""} onChange={handleChange} className="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Cantonese, Mandarin" />
                   </div>
                 </div>
@@ -252,7 +254,7 @@ export default function ProfilePage() {
                   className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-2"
                 >
                   {isSaving ? <Loader2 className="animate-spin" size={18}/> : <Save size={18} />}
-                  Save Profile
+                  {t('saveProfile')}
                 </button>
               </div>
 
@@ -261,8 +263,8 @@ export default function ProfilePage() {
             {/* Danger Zone */}
             <div className="mt-12 pt-8 border-t border-red-200 dark:border-red-900/30">
               <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-2xl p-6">
-                <h3 className="text-lg font-bold text-red-600 dark:text-red-500 mb-2">Danger Zone</h3>
-                <p className="text-sm text-red-800/80 dark:text-red-400/80 mb-6 font-medium">Permanently delete your account and clear all archived transcripts, audio files, contexts, and structural data. This action cannot be undone.</p>
+                <h3 className="text-lg font-bold text-red-600 dark:text-red-500 mb-2">{t('dangerZone')}</h3>
+                <p className="text-sm text-red-800/80 dark:text-red-400/80 mb-6 font-medium">{t('dangerZoneDesc')}</p>
                 
                 {!isConfirmingDelete ? (
                   <button
@@ -270,16 +272,15 @@ export default function ProfilePage() {
                     onClick={() => setIsConfirmingDelete(true)}
                     className="px-6 py-2.5 bg-red-100 hover:bg-red-200 dark:bg-red-900/40 dark:hover:bg-red-900/60 text-red-700 dark:text-red-400 font-bold rounded-xl shadow-sm transition-colors"
                   >
-                    Delete Account
+                    {t('deleteAccount')}
                   </button>
                 ) : (
                   <div className="space-y-4">
                     <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-red-200 dark:border-red-800">
                       <label className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-2">
-                        Are you absolutely sure?
+                        {t('areYouSure')}
                       </label>
-                      <p className="text-xs text-zinc-500 mb-3">
-                        Type <strong className="text-red-600">DELETE</strong> below to confirm permanent destruction of your vault.
+                      <p className="text-xs text-zinc-500 mb-3" dangerouslySetInnerHTML={{ __html: t.raw('typeDelete') }}>
                       </p>
                       <input 
                         type="text" 
@@ -296,7 +297,7 @@ export default function ProfilePage() {
                           className="px-6 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold rounded-lg shadow-sm transition-all flex items-center gap-2"
                         >
                           {isDeleting ? <Loader2 className="animate-spin" size={16}/> : null}
-                          Confirm Purge
+                          {t('confirmPurge')}
                         </button>
                         <button
                           type="button"
@@ -307,7 +308,7 @@ export default function ProfilePage() {
                           }}
                           className="px-4 py-2 bg-zinc-200 hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium rounded-lg transition-colors"
                         >
-                          Cancel
+                          {t('cancel')}
                         </button>
                       </div>
                     </div>

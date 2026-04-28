@@ -10,6 +10,7 @@ import { HighFidelityStory } from "@/lib/rag";
 import { fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/mongo/db";
 import { generateSandersonChapterAction } from "@/app/actions";
 import ReactMarkdown from "react-markdown";
+import { useTranslations } from 'next-intl';
 
 const ERA_ORDER: Record<string, number> = {
   "Childhood": 1,
@@ -22,6 +23,7 @@ const ERA_ORDER: Record<string, number> = {
 };
 
 export default function MyStoriesPage() {
+  const t = useTranslations('MyStoriesPage');
   const { user, loading } = useAuth();
   const [stories, setStories] = useState<HighFidelityStory[]>([]);
   const [activeStory, setActiveStory] = useState<HighFidelityStory | null>(null);
@@ -114,11 +116,11 @@ export default function MyStoriesPage() {
         // Persist to Firebase
         await saveHighFidelityStories(user.uid, newStories);
       } else {
-         alert("Failed to adapt story.");
+         alert(t('failedToAdapt'));
       }
     } catch (err) {
       console.error(err);
-      alert("Error generating novel chapter.");
+      alert(t('errorGenerating'));
     } finally {
       setIsGenerating(false);
       setEditorialDraft("");
@@ -137,23 +139,23 @@ export default function MyStoriesPage() {
       <header className="h-16 flex items-center justify-between px-6 border-b border-zinc-300/50 dark:border-zinc-800/50 bg-[#F4F1EA]/80 dark:bg-[#111111]/80 backdrop-blur sticky top-0 z-50">
         <div className="flex items-center gap-4">
           <Link href="/progress" className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition flex items-center gap-2 text-sm font-medium">
-            <ArrowLeft size={16} /> Dashboard
+            <ArrowLeft size={16} /> {t('dashboard')}
           </Link>
           <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
           <Link href="/stories" className="text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition flex items-center gap-2 text-sm font-medium">
-            <Library size={16} /> Timeline
+            <Library size={16} /> {t('timeline')}
           </Link>
         </div>
         <div className="text-sm font-serif italic text-zinc-500 dark:text-zinc-400">
-           The Library
+           {t('theLibrary')}
         </div>
       </header>
 
       {stories.length === 0 ? (
          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
             <BookOpen size={48} className="text-zinc-300 dark:text-zinc-700 mb-4" />
-            <h2 className="text-2xl font-bold text-zinc-800 dark:text-zinc-200 mb-2">Your book is empty.</h2>
-            <p className="text-zinc-500 max-w-md">You need to extract High-Fidelity Stories from your transcripts before generating chapters.</p>
+            <h2 className="text-2xl font-bold text-zinc-800 dark:text-zinc-200 mb-2">{t('bookEmpty')}</h2>
+            <p className="text-zinc-500 max-w-md">{t('bookEmptyDesc')}</p>
          </div>
       ) : (
          <div className="flex-1 flex overflow-hidden">
@@ -162,7 +164,7 @@ export default function MyStoriesPage() {
             <div className="w-72 flex-shrink-0 border-r border-zinc-300/50 dark:border-zinc-800/50 overflow-y-auto bg-[#EFECE5] dark:bg-[#0a0a0a]">
               <div className="p-6 pb-2">
                  <h2 className="text-xs uppercase tracking-widest font-bold text-zinc-400 dark:text-zinc-600 mb-8 flex items-center gap-2">
-                   <BookOpen size={14} /> Table of Contents
+                   <BookOpen size={14} /> {t('tableOfContents')}
                  </h2>
               </div>
               
@@ -221,7 +223,7 @@ export default function MyStoriesPage() {
                         >
                            <header className="mb-16 text-center">
                               <span className="uppercase tracking-widest text-xs font-bold text-zinc-500 mb-4 block">
-                                 Chapter {stories.indexOf(activeStory) + 1}
+                                 {t('chapter', { number: stories.indexOf(activeStory) + 1 })}
                               </span>
                               <h1 className="text-3xl md:text-4xl font-serif text-zinc-900 dark:text-zinc-100 leading-tight">
                                  {activeStory.title}
@@ -229,7 +231,7 @@ export default function MyStoriesPage() {
                               <div className="mt-8 flex items-center justify-center gap-3 opacity-60">
                                  <div className="h-px w-8 bg-zinc-400 dark:bg-zinc-500 rounded-full"></div>
                                  <p className="font-serif italic text-sm tracking-wide text-zinc-600 dark:text-zinc-400">
-                                    Inspired by true events, dramatized for narrative effect
+                                    {t('inspiredByTrueEvents')}
                                  </p>
                                  <div className="h-px w-8 bg-zinc-400 dark:bg-zinc-500 rounded-full"></div>
                               </div>
@@ -242,12 +244,12 @@ export default function MyStoriesPage() {
                               </div>
                            ) : (
                               <div className="flex flex-col items-center justify-center py-20 text-center">
-                                 <div className="w-16 h-16 bg-white dark:bg-zinc-900 rounded-full flex items-center justify-center shadow-sm mb-6 border border-zinc-200 dark:border-zinc-800">
+                                  <div className="w-16 h-16 bg-white dark:bg-zinc-900 rounded-full flex items-center justify-center shadow-sm mb-6 border border-zinc-200 dark:border-zinc-800">
                                     <PenTool className="text-zinc-400" size={24} />
                                  </div>
-                                 <h3 className="text-xl font-serif text-zinc-800 dark:text-zinc-200 mb-2">Unwritten Chapter</h3>
+                                 <h3 className="text-xl font-serif text-zinc-800 dark:text-zinc-200 mb-2">{t('unwrittenChapter')}</h3>
                                  <p className="text-zinc-500 mb-8 max-w-sm">
-                                    This memory exists in your raw timeline, but it hasn't been adapted into a novelized chapter yet.
+                                    {t('unwrittenChapterDesc')}
                                  </p>
                               <button
                                     onClick={() => handleGenerateChapter()}
@@ -255,15 +257,15 @@ export default function MyStoriesPage() {
                                     className="flex items-center gap-2 px-6 py-3 bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-bold rounded-full transition-all disabled:opacity-50"
                                  >
                                     {isGenerating ? (
-                                       <><Loader2 className="animate-spin" size={16} /> Drafting Epic...</>
+                                       <><Loader2 className="animate-spin" size={16} /> {t('draftingEpic')}</>
                                     ) : (
-                                       <><Sparkles size={16} /> Rewrite as Realistic Epic</>
+                                       <><Sparkles size={16} /> {t('rewriteRealisticEpic')}</>
                                     )}
                                  </button>
                                  
                                  {isGenerating && (
                                     <p className="text-xs text-zinc-400 mt-4 animate-pulse">
-                                       Applying 'Hard Magic' mechanics and the CPR framework to realistic physics...
+                                       {t('applyingHardMagic')}
                                     </p>
                                  )}
                               </div>
@@ -288,7 +290,7 @@ export default function MyStoriesPage() {
                            onClick={() => setIsEditingNotes(true)}
                            className="px-4 py-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-700 flex items-center gap-2"
                         >
-                           <PenTool size={14} /> Mark Discrepancy
+                           <PenTool size={14} /> {t('markDiscrepancy')}
                         </button>
                      </motion.div>
                   )}
@@ -302,8 +304,8 @@ export default function MyStoriesPage() {
                      >
                         <div className="flex justify-between items-start mb-4">
                            <div>
-                              <h3 className="font-bold flex items-center gap-2 text-zinc-900 dark:text-zinc-100"><PenTool size={16} className="text-indigo-500" /> Editorial Correction</h3>
-                              <p className="text-xs text-zinc-500 mt-1">Found a hallucination? The AI will rewrite the chapter incorporating this specific fix.</p>
+                              <h3 className="font-bold flex items-center gap-2 text-zinc-900 dark:text-zinc-100"><PenTool size={16} className="text-indigo-500" /> {t('editorialCorrection')}</h3>
+                              <p className="text-xs text-zinc-500 mt-1">{t('editorialCorrectionDesc')}</p>
                            </div>
                            <button onClick={() => { setIsEditingNotes(false); setSelectionContext(null); }} className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">
                               <X size={18} />
@@ -317,7 +319,7 @@ export default function MyStoriesPage() {
                         <textarea
                            value={editorialDraft}
                            onChange={(e) => setEditorialDraft(e.target.value)}
-                           placeholder="e.g. His first wife's name was actually Garbo, not Mary."
+                           placeholder={t('correctionPlaceholder')}
                            className="w-full bg-[#fcfbf9] dark:bg-zinc-950 rounded-lg p-3 text-sm min-h-[100px] outline-none border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 resize-none transition-all"
                         />
 
@@ -328,7 +330,7 @@ export default function MyStoriesPage() {
                               className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-full text-sm transition-all disabled:opacity-50 flex items-center gap-2 shadow-md"
                            >
                               {isGenerating ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} />} 
-                              Regenerate Engine
+                              {t('regenerateEngine')}
                            </button>
                         </div>
                      </motion.div>

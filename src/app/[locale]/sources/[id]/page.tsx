@@ -4,11 +4,13 @@ import React, { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import ReactMarkdown from 'react-markdown';
 import { ArrowLeft, Loader2, Bot, User, TextQuote, RefreshCw } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useAuth } from "@/components/AuthProvider";
 import { fetchUserSources, updateNotebookSourceParsedContent, NotebookSource, fetchUserProfile, updateNotebookSourceIntelligence } from "@/lib/mongo/db";
 import { useParams } from "next/navigation";
 
 export default function SourceViewerPage() {
+  const t = useTranslations("SourceViewerPage");
   const { user, loading } = useAuth();
   const params = useParams();
   const sourceId = params.id as string;
@@ -37,7 +39,7 @@ export default function SourceViewerPage() {
                 formatTranscriptWithAI(target);
             }
         } else {
-            setErrorLocal("Source not found.");
+            setErrorLocal(t("sourceNotFound"));
         }
       });
     }
@@ -57,14 +59,14 @@ export default function SourceViewerPage() {
 
       try {
           if (!targetSource.textContent || targetSource.textContent.length < 20) {
-              throw new Error("UNABLE_TO_PARSE: This document seems to have no machine-readable text (it may be a scanned image). Please re-upload a text-searchable version.");
+              throw new Error(t("unableToParse"));
           }
 
           let currentIntelligence = targetSource.intelligence;
 
           // Step 1: Analyze Document Intelligence if missing
           if (!currentIntelligence) {
-              setAnalysisStage("Analyzing Speakers & Context...");
+              setAnalysisStage(t("analyzingSpeakers"));
               const analyzeRes = await fetch("/api/analyze-transcript", {
                   method: "POST",
                   headers: {"Content-Type": "application/json"},
@@ -85,7 +87,7 @@ export default function SourceViewerPage() {
               }
           }
 
-          setAnalysisStage("Reconstructing Narrative...");
+          setAnalysisStage(t("reconstructingNarrative"));
 
           // Dynamically fetch linguistic context to perform phonetic translation on-the-fly!
           let linguisticContext = "";
@@ -139,7 +141,7 @@ export default function SourceViewerPage() {
           if (parts.length === 1) return children;
           return parts.map((part, i) => {
               if (i % 2 !== 0) {
-                  return <span key={i} className="bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded text-[13px] font-semibold border border-amber-200 dark:border-amber-800/80 shadow-sm mx-0.5" title="AI Linguistic Correction">{part}</span>;
+                  return <span key={i} className="bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded text-[13px] font-semibold border border-amber-200 dark:border-amber-800/80 shadow-sm mx-0.5" title={t("aiLinguisticCorrection")}>{part}</span>;
               }
               return <span key={i}>{part}</span>;
           });
@@ -159,7 +161,7 @@ export default function SourceViewerPage() {
       const parts = msg.split(/\[EDIT:\s*(.*?)\]/g);
       return parts.map((part, i) => {
           if (i % 2 !== 0) {
-              return <span key={i} className="bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded text-sm font-semibold border border-amber-200 dark:border-amber-800/80 shadow-sm mx-0.5" title="AI Linguistic Correction">{part}</span>;
+              return <span key={i} className="bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded text-sm font-semibold border border-amber-200 dark:border-amber-800/80 shadow-sm mx-0.5" title={t("aiLinguisticCorrection")}>{part}</span>;
           }
           return <span key={i}>{part}</span>;
       });
@@ -238,9 +240,9 @@ export default function SourceViewerPage() {
      return (
         <div className="flex flex-col items-center justify-center h-screen bg-zinc-50 dark:bg-zinc-950">
             <TextQuote size={48} className="text-zinc-300 mb-4"/>
-            <h2 className="text-lg font-bold text-zinc-700">Unable to Load Transcript</h2>
+            <h2 className="text-lg font-bold text-zinc-700">{t("unableToLoad")}</h2>
             <p className="text-zinc-500 mb-6">{errorLocal}</p>
-            <Link href="/sources" className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition">Return to Vault</Link>
+            <Link href="/sources" className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-semibold text-sm hover:bg-indigo-700 transition">{t("returnToVault")}</Link>
         </div>
      );
   }
@@ -254,9 +256,9 @@ export default function SourceViewerPage() {
               </Link>
               <div className="border-l border-zinc-200 dark:border-zinc-800 pl-4">
                   <h1 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                      {source?.fileName || "Unknown Document"}
+                      {source?.fileName || t("unknownDocument")}
                   </h1>
-                  <span className="text-[10px] uppercase tracking-wide text-zinc-500 font-bold">{isStreaming ? (analysisStage || "AI Reconstructing Script...") : "Interactive Script"}</span>
+                  <span className="text-[10px] uppercase tracking-wide text-zinc-500 font-bold">{isStreaming ? (analysisStage || t("aiReconstructing")) : t("interactiveScript")}</span>
               </div>
           </div>
           <div className="flex items-center gap-2">
@@ -269,7 +271,7 @@ export default function SourceViewerPage() {
                         }} 
                         className={`text-[10px] uppercase tracking-wider font-bold px-3 py-1.5 rounded-full transition flex items-center gap-1.5 ${!parsedChunks.includes("[FORMAT: REPORT]") ? 'bg-white dark:bg-zinc-700 shadow-sm text-indigo-600' : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300'}`}
                      >
-                        Chat View
+                        {t("chatView")}
                      </button>
                      <button 
                         onClick={(e) => { 
@@ -278,11 +280,11 @@ export default function SourceViewerPage() {
                         }} 
                         className={`text-[10px] uppercase tracking-wider font-bold px-3 py-1.5 rounded-full transition flex items-center gap-1.5 ${parsedChunks.includes("[FORMAT: REPORT]") ? 'bg-white dark:bg-zinc-700 shadow-sm text-indigo-600' : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300'}`}
                      >
-                        Prose View
+                        {t("proseView")}
                      </button>
                  </div>
               )}
-              {isStreaming && <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full text-xs font-bold animate-pulse leading-none"><Bot size={12}/> Generating...</div>}
+              {isStreaming && <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full text-xs font-bold animate-pulse leading-none"><Bot size={12}/> {t("generating")}</div>}
           </div>
       </header>
 
@@ -295,8 +297,8 @@ export default function SourceViewerPage() {
             ) : (
                 <div className="flex flex-col items-center justify-center p-20 text-center opacity-50 mt-10">
                    <Loader2 size={32} className="animate-spin text-zinc-400 mb-6"/>
-                   <span className="font-bold text-zinc-600 text-lg mb-2">{analysisStage || "Cognitive Reconstruction Initialized"}</span>
-                   <span className="text-sm text-zinc-500 max-w-md mx-auto">{analysisStage === "Analyzing Speakers & Context..." ? "Identifying speakers, context, and structural document type..." : "Classifying document constraints and formatting extraction pipeline..."}</span>
+                   <span className="font-bold text-zinc-600 text-lg mb-2">{analysisStage || t("cognitiveReconstruction")}</span>
+                   <span className="text-sm text-zinc-500 max-w-md mx-auto">{analysisStage === t("analyzingSpeakers") ? t("identifyingSpeakers") : t("classifyingDocument")}</span>
                 </div>
             )}
          </div>

@@ -28,6 +28,8 @@ export interface UploadProgressState {
 export default function Home() {
   const t = useTranslations('Dashboard');
   const tChat = useTranslations('Chat');
+  const tSidebar = useTranslations('DashboardSidebar');
+  const tProcessing = useTranslations('Processing');
   const { user, loading } = useAuth();
   const { startTour, checkTourReady } = useOnboarding();
   const { jobs, startJob } = useBackgroundJobs();
@@ -807,7 +809,7 @@ export default function Home() {
         {showVault && (
           <div className="absolute top-16 left-64 w-80 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-2xl z-50 overflow-hidden flex flex-col max-h-[80vh]">
             <div className="p-4 border-b border-zinc-100 dark:border-zinc-800 bg-amber-50/50 dark:bg-amber-900/10 flex justify-between items-center">
-              <h3 className="font-bold text-amber-700 dark:text-amber-500 flex items-center gap-2"><BookOpen size={16}/> Saved Timelines</h3>
+              <h3 className="font-bold text-amber-700 dark:text-amber-500 flex items-center gap-2"><BookOpen size={16}/> {tSidebar('savedTimelines')}</h3>
               <button onClick={() => setShowVault(false)}><X size={16} className="text-zinc-400"/></button>
             </div>
             <div className="overflow-y-auto p-2 space-y-1">
@@ -815,10 +817,10 @@ export default function Home() {
                <div key={session.id} onClick={() => viewHistoricalSession(session)} className="hover:bg-zinc-50 dark:hover:bg-zinc-800 p-3 rounded-xl cursor-pointer group transition">
                  <p className="text-xs text-zinc-500 mb-1">{new Date(session.createdAt?.toDate?.() || Date.now()).toLocaleString()}</p>
                  <p className="text-sm font-semibold line-clamp-2 leading-snug">{session.synopsis || "Historical Session Compilation"}</p>
-                 <button onClick={(e) => removeHistorySession(e, session.id)} className="mt-2 text-xs text-red-500 opacity-0 group-hover:opacity-100 flex items-center gap-1"><Trash2 size={12}/> Delete</button>
+                 <button onClick={(e) => removeHistorySession(e, session.id)} className="mt-2 text-xs text-red-500 opacity-0 group-hover:opacity-100 flex items-center gap-1"><Trash2 size={12}/> {tSidebar('delete')}</button>
                </div>
               ))}
-              {history.length === 0 && <p className="text-sm p-4 text-center text-zinc-500">Vault is empty.</p>}
+              {history.length === 0 && <p className="text-sm p-4 text-center text-zinc-500">{tSidebar('vaultIsEmpty')}</p>}
             </div>
           </div>
         )}
@@ -942,8 +944,8 @@ export default function Home() {
         {/* COLUMN 3: Studio (25%) */}
         <div className="col-span-3 bg-zinc-50 dark:bg-[#121212] border-l border-zinc-200 dark:border-zinc-800 flex flex-col h-full overflow-y-auto">
            <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 font-semibold text-[15px] flex items-center justify-between">
-              Studio
-              <span className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-400 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">Beta</span>
+              {tSidebar('studio')}
+              <span className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-400 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">{tSidebar('beta')}</span>
            </div>
 
            <div className="p-4 space-y-6">
@@ -958,8 +960,8 @@ export default function Home() {
                        <AudioLines className="text-blue-600 dark:text-blue-400" size={20}/>
                     </div>
                     <div className="flex flex-col">
-                       <span className="text-sm font-bold text-blue-900 dark:text-blue-300">Audio Overview</span>
-                       <span className="text-xs text-blue-700/70 dark:text-blue-400/70">Listen to a deep dive podcast</span>
+                       <span className="text-sm font-bold text-blue-900 dark:text-blue-300">{tSidebar('audioOverview')}</span>
+                       <span className="text-xs text-blue-700/70 dark:text-blue-400/70">{tSidebar('audioOverviewDesc')}</span>
                     </div>
                  </div>
 
@@ -971,8 +973,8 @@ export default function Home() {
                        <Network className="text-emerald-600 dark:text-emerald-400" size={20}/>
                     </div>
                     <div className="flex flex-col">
-                       <span className="text-sm font-bold text-emerald-900 dark:text-emerald-400">Network Entities</span>
-                       <span className="text-xs text-emerald-700/70 dark:text-emerald-400/70">Manage NexusLink Identities</span>
+                       <span className="text-sm font-bold text-emerald-900 dark:text-emerald-400">{tSidebar('networkEntities')}</span>
+                       <span className="text-xs text-emerald-700/70 dark:text-emerald-400/70">{tSidebar('networkEntitiesDesc')}</span>
                     </div>
                  </Link>
 
@@ -985,22 +987,22 @@ export default function Home() {
                        <Brain className="text-purple-600 dark:text-purple-400" size={20}/>
                     </div>
                     <div className="flex flex-col">
-                       <span className="text-sm font-bold text-purple-900 dark:text-purple-400">AI Interviewer</span>
-                       <span className="text-xs text-purple-700/70 dark:text-purple-400/70">Interactive voice conversations</span>
+                       <span className="text-sm font-bold text-purple-900 dark:text-purple-400">{tSidebar('aiInterviewer')}</span>
+                       <span className="text-xs text-purple-700/70 dark:text-purple-400/70">{tSidebar('aiInterviewerDesc')}</span>
                     </div>
                  </div>
               </div>
 
               {/* Status & To-Do Legend */}
               <div className="border-t border-zinc-200 dark:border-zinc-800 pt-6">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-4"><Activity size={14}/> Status & Actions Legend</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2 mb-4"><Activity size={14}/> {tSidebar('statusLegend')}</h3>
                 
                 <div className="space-y-3">
                   {jobs.length > 0 && (
                     <div className="p-4 bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900 rounded-xl shadow-sm">
                       <div className="flex items-center justify-between mb-3">
                         <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-2">
-                           <Loader2 size={14} className="animate-spin" /> Active Background Workers ({jobs.length})
+                           <Loader2 size={14} className="animate-spin" /> {tSidebar('activeBackgroundWorkers')} ({jobs.length})
                         </span>
                       </div>
                       <div className="space-y-3">
@@ -1028,8 +1030,8 @@ export default function Home() {
                           <Network size={14}/>
                        </div>
                        <div className="flex flex-col">
-                          <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Unconfirmed Entities</span>
-                          <span className="text-xs text-zinc-500">Address Book identity alignment</span>
+                          <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">{tSidebar('unconfirmedEntities')}</span>
+                          <span className="text-xs text-zinc-500">{tSidebar('unconfirmedEntitiesDesc')}</span>
                        </div>
                     </div>
                     {actionMetrics.ready ? (
@@ -1047,8 +1049,8 @@ export default function Home() {
                           <BookOpen size={14}/>
                        </div>
                        <div className="flex flex-col">
-                          <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Narrative Gaps</span>
-                          <span className="text-xs text-zinc-500">Timeline chapters missing deep context</span>
+                          <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">{tSidebar('narrativeGaps')}</span>
+                          <span className="text-xs text-zinc-500">{tSidebar('narrativeGapsDesc')}</span>
                        </div>
                     </div>
                     {actionMetrics.ready ? (
@@ -1078,11 +1080,11 @@ export default function Home() {
                <Loader2 className="animate-spin text-purple-600 dark:text-purple-400" size={16} />
             </div>
             <div className="flex flex-col pr-2">
-              <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200 leading-tight">Synthesizing Context</span>
+              <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200 leading-tight">{tProcessing('synthesizingContext')}</span>
               <span className="text-[11px] text-zinc-500 font-medium leading-none mt-1">
                  {dashboardProgress && dashboardProgress.etaSeconds > 0 
-                     ? `Chunk ${dashboardProgress.current}/${dashboardProgress.total} • ${dashboardProgress.etaSeconds}s remaining`
-                     : "Updating local timeline..."}
+                     ? `${tProcessing('chunk')} ${dashboardProgress.current}/${dashboardProgress.total} • ${dashboardProgress.etaSeconds}s ${tProcessing('remaining')}`
+                     : tProcessing('updatingLocalTimeline')}
               </span>
             </div>
           </motion.div>
