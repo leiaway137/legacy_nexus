@@ -66,6 +66,28 @@ export default function ProgressPage() {
 
   // Identities
   const [activeArchetype, setActiveArchetype] = useState<any>(null);
+
+  const translateArchetype = (title: string) => {
+      if (!title) return "";
+      const exactKey = `archetype_${title.replace(/\s+/g, '')}`;
+      const translatedExact = t(exactKey as any);
+      if (translatedExact !== exactKey) return translatedExact;
+      
+      // Fallback composition for "The [Modifier] [Node]"
+      const parts = title.replace(/^The\s+/i, '').split(' ');
+      if (parts.length === 2) {
+          const modKey = `mod_${parts[0]}`;
+          const nodeKey = `node_${parts[1]}`;
+          const tMod = t(modKey as any);
+          const tNode = t(nodeKey as any);
+          if (tMod !== modKey && tNode !== nodeKey) {
+             // If we have translations for both
+             return `${tMod}${tNode}`;
+          }
+      }
+      return title;
+  };
+
   const [driftInsight, setDriftInsight] = useState<string | null>(null);
   const [isStudyOpen, setIsStudyOpen] = useState(false);
 
@@ -343,13 +365,24 @@ export default function ProgressPage() {
                   let anchor: "start" | "middle" | "end" = "middle";
                   if (p.x > center + 10) anchor = "start";
                   if (p.x < center - 10) anchor = "end";
+                  const translatedLabel = t(`riasec_${label.toLowerCase()}`);
                   return (
-                    <text 
-                      key={label} x={p.x} y={p.y} textAnchor={anchor} alignmentBaseline="middle"
-                      className="text-[10px] font-bold fill-zinc-600 dark:fill-zinc-400 tracking-wider uppercase"
-                    >
-                      {label}
-                    </text>
+                    <g key={label}>
+                       <text 
+                         x={p.x} y={translatedLabel !== label ? p.y - 6 : p.y} textAnchor={anchor} alignmentBaseline="middle"
+                         className="text-[10px] font-bold fill-zinc-600 dark:fill-zinc-400 tracking-wider uppercase"
+                       >
+                         {label}
+                       </text>
+                       {translatedLabel !== label && (
+                         <text 
+                           x={p.x} y={p.y + 8} textAnchor={anchor} alignmentBaseline="middle"
+                           className="text-[10px] font-bold fill-zinc-400 dark:fill-zinc-500 tracking-wider"
+                         >
+                           {translatedLabel}
+                         </text>
+                       )}
+                    </g>
                   );
                 })}
               </svg>
@@ -402,24 +435,34 @@ export default function ProgressPage() {
                 
                 <AnimatePresence mode="popLayout" initial={false}>
                   <motion.div
-                    key={`arch-block-${activeEraIdx}-${activeArchetype.title}`}
+                    key={`arch-block-${activeEraIdx}-${translateArchetype(activeArchetype.title)}`}
                     initial={{ opacity: 0, y: -10 }} 
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 10, transition: { duration: 0.2 } }}
                     className="w-full"
                   >
                     <h2 className="text-2xl md:text-3xl font-black text-indigo-900 dark:text-indigo-100 mb-4 text-center md:text-left">
-                      {activeArchetype.title}
+                      {translateArchetype(activeArchetype.title)}
                     </h2>
 
                     <div className="grid grid-cols-2 gap-4 mb-4">
-                       <div className="p-3 bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700">
+                       <div className="p-3 bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 flex flex-col justify-center">
                          <span className="block text-[10px] uppercase font-bold text-zinc-500 tracking-wider mb-1">{t('primaryFlow')}</span>
-                         <span className="font-bold text-indigo-600 dark:text-indigo-400 text-lg">{activeArchetype.primaryRiasec}</span>
+                         <div className="flex items-end gap-2">
+                            <span className="font-bold text-indigo-600 dark:text-indigo-400 text-lg">{activeArchetype.primaryRiasec}</span>
+                            {t(`riasec_${activeArchetype.primaryRiasec?.toLowerCase()}`) !== activeArchetype.primaryRiasec && (
+                               <span className="text-xs font-semibold text-indigo-400 dark:text-indigo-500 mb-0.5">{t(`riasec_${activeArchetype.primaryRiasec?.toLowerCase()}`)}</span>
+                            )}
+                         </div>
                        </div>
-                       <div className="p-3 bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700">
+                       <div className="p-3 bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 flex flex-col justify-center">
                          <span className="block text-[10px] uppercase font-bold text-zinc-500 tracking-wider mb-1">{t('secondaryFlow')}</span>
-                         <span className="font-bold text-indigo-500/80 dark:text-indigo-300/80 text-lg">{activeArchetype.secondaryRiasec}</span>
+                         <div className="flex items-end gap-2">
+                            <span className="font-bold text-indigo-500/80 dark:text-indigo-300/80 text-lg">{activeArchetype.secondaryRiasec}</span>
+                            {t(`riasec_${activeArchetype.secondaryRiasec?.toLowerCase()}`) !== activeArchetype.secondaryRiasec && (
+                               <span className="text-xs font-semibold text-indigo-300 dark:text-indigo-500/80 mb-0.5">{t(`riasec_${activeArchetype.secondaryRiasec?.toLowerCase()}`)}</span>
+                            )}
+                         </div>
                        </div>
                     </div>
 
