@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/routing";
 import { Share2, Settings, User, Network, Activity, BookOpen, LogOut, Home, Library, Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { signOut } from "next-auth/react";
