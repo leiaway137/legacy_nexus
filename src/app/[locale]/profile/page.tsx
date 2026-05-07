@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, User, Mail, Shield, Sparkles, Save, Loader2, MapPin, Calendar, Users, Globe2, MessageSquare } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
-import { fetchUserProfile, updateUserProfile, deleteUserAccount, type UserProfile } from "@/lib/mongo/db";
+import { fetchUserProfile, updateUserProfile, deleteUserAccount, type UserProfile } from "@/lib/local-db/db";
 import { signOut } from "next-auth/react";
 import { useTranslations } from 'next-intl';
 

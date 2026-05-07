@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { processTranscriptAction, generateQuestionsAction, uploadAndExtractAction, generateSynopsisAction, chatWithLegacyAction, generateWisdomSummariesAction, extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, embedStoriesToPineconeAction, deletePineconeSourceAction, deleteAllPineconeResourcesAction, recompileStoriesWithContactsAction, reduceDashboardOverviewAction } from "../actions";
-import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, saveQuestionBankItem, deleteAllUserContacts, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/mongo/db";
+import { saveCompiledSession, fetchUserSessions, deleteSession, uploadNotebookSource, fetchUserSources, deleteNotebookSource, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateUserProfile, saveChatHistory, fetchChatHistory, fetchContacts, saveContact, fetchDashboardState, saveDashboardState, saveQuestionBankItem, deleteAllUserContacts, type PersistentDashboardState, type NotebookSource, type Contact } from "@/lib/local-db/db";
 import { useBackgroundJobs } from "@/components/BackgroundJobProvider";
 import { type TranscriptChunk, type WisdomSummary, type HighFidelityStory, type DashboardOverview } from "@/lib/rag";
 import { motion, AnimatePresence } from "framer-motion";

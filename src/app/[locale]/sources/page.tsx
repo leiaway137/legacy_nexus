@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, FileText, Trash2, Database, Clock, Bot } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/components/AuthProvider";
-import { fetchUserSources, deleteNotebookSource, NotebookSource, saveHighFidelityStories, saveChatHistory, deleteAllUserContacts, saveDashboardState } from "@/lib/mongo/db";
+import { fetchUserSources, deleteNotebookSource, NotebookSource, saveHighFidelityStories, saveChatHistory, deleteAllUserContacts, saveDashboardState } from "@/lib/local-db/db";
 import { deleteAllPineconeResourcesAction, embedStoriesToPineconeAction, extractHighFidelityStoriesAction } from "@/app/actions";
 
 export default function SourcesPage() {

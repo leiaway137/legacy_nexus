@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import { ArrowLeft, Loader2, Bot, User, TextQuote, RefreshCw } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/components/AuthProvider";
-import { fetchUserSources, updateNotebookSourceParsedContent, NotebookSource, fetchUserProfile, updateNotebookSourceIntelligence } from "@/lib/mongo/db";
+import { fetchUserSources, updateNotebookSourceParsedContent, NotebookSource, fetchUserProfile, updateNotebookSourceIntelligence } from "@/lib/local-db/db";
 import { useParams } from "next/navigation";
 
 export default function SourceViewerPage() {

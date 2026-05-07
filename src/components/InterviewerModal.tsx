@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Mic, MicOff, Image as ImageIcon, X, Loader2, Save, Download, Play, Square } from "lucide-react";
 import { conductActiveInterviewAction, extractDemographicsAction, generateElevenLabsAudioAction } from "@/app/actions";
 import { ELEVENLABS_VOICES } from "@/lib/elevenlabs/voices";
-import { fetchPendingBankQuestions, markQuestionsAnswered, fetchUserProfile, incrementUserTrustScore, updateUserProfile } from "@/lib/mongo/db";
+import { fetchPendingBankQuestions, markQuestionsAnswered, fetchUserProfile, incrementUserTrustScore, updateUserProfile } from "@/lib/local-db/db";
 
 interface InterviewerModalProps {
   userId: string;

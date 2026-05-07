@@ -8,7 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { InterviewerModal } from "@/components/InterviewerModal";
 import { HighFidelityStory } from "@/lib/rag";
-import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights, saveChatHistory, fetchContacts, saveContact, uploadNotebookSource, type Contact } from "@/lib/mongo/db";
+import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights, saveChatHistory, fetchContacts, saveContact, uploadNotebookSource, type Contact } from "@/lib/local-db/db";
 import { extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, generateLegacyIdentityAction, generateDriftInsightAction, generateLegacyDeepDiveAction, deleteAllPineconeResourcesAction, embedStoriesToPineconeAction } from "@/app/actions";
 import { computeCentroidMath, analyzeCrossMetricPattern, RECOGNIZED_ERAS } from "@/lib/math";
 import { useOnboarding } from "@/components/OnboardingProvider";

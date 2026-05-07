@@ -1,12 +1,11 @@
 import NextAuth from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
-import clientPromise from "@/lib/mongo/client"
+import { getDb, initDb } from "@/lib/local-db/client"
 import { seedUserOnboarding } from "@/lib/onboarding"
-
+import { randomUUID } from "crypto"
 
 export const authOptions = {
   secret: process.env.NEXTAUTH_SECRET || "legacy_nexus_default_fallback_secret_for_vercel",
-  // We use JWT for simple secure stateless sessions that easily proxy over Vercel Edge
   session: { strategy: "jwt" as const },
   
   providers: [
@@ -21,23 +20,24 @@ export const authOptions = {
         if (!credentials?.email || !credentials?.password) return null;
         
         try {
-           const client = await clientPromise;
-           const db = client.db("legacy_nexus");
-           const user = await db.collection("users").findOne({ email: credentials.email.toLowerCase() });
+           initDb();
+           const db = getDb();
+           
+           const user = db.prepare('SELECT * FROM users WHERE email = ?').get(credentials.email.toLowerCase()) as any;
            
            if (!user) {
               if (credentials.action === "login") throw new Error("No account found! Please create an account first.");
               
-              // explicitly handle Registration pathway
-              const res = await db.collection("users").insertOne({
-                 email: credentials.email.toLowerCase(),
-                 passwordHash: credentials.password, // TODO: bcrypt hash in production
-                 createdAt: new Date()
-              });
+              const newUserId = randomUUID();
               
-              const newUserId = res.insertedId.toString();
+              db.prepare('INSERT INTO users (id, email, passwordHash, createdAt) VALUES (?, ?, ?, ?)').run(
+                 newUserId,
+                 credentials.email.toLowerCase(),
+                 credentials.password,
+                 new Date().toISOString()
+              );
               
-              // Seed the user with dummy onboarding transcripts dynamically without blocking the auth return
+              // Seed the user with dummy onboarding transcripts
               seedUserOnboarding(newUserId).catch(e => console.error(e));
               
               return { id: newUserId, email: credentials.email };
@@ -49,11 +49,11 @@ export const authOptions = {
            
            // Verify password
            if (user.passwordHash === credentials.password) {
-              return { id: user._id.toString(), email: user.email };
+              return { id: user.id, email: user.email };
            }
            
         } catch (error) {
-           console.error("NextAuth MongoDB Error", error);
+           console.error("NextAuth SQLite Error", error);
         }
         return null;
       }
