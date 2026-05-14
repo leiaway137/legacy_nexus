@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "../globals.css";
 
+export const maxDuration = 60; // Extend Vercel Hobby Timeout from 10s default to 60s max
+
 export const metadata: Metadata = {
   title: "Legacy Nexus",
   description: "Preserving generational stories.",
