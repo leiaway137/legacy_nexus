@@ -67,7 +67,7 @@ export default function SourceViewerPage() {
           // Step 1: Analyze Document Intelligence if missing
           if (!currentIntelligence) {
               setAnalysisStage(t("analyzingSpeakers"));
-              const analyzeRes = await fetch("/api/analyze-transcript", {
+              const analyzeRes = await fetch("/api/ai", {
                   method: "POST",
                   headers: {"Content-Type": "application/json"},
                   body: JSON.stringify({ action: "analyze", textContent: targetSource.textContent })
@@ -96,7 +96,7 @@ export default function SourceViewerPage() {
              linguisticContext = [profile?.culturalHeritage, profile?.primaryLanguage, profile?.secondaryLanguages].filter(Boolean).join(" | ");
           }
 
-          const res = await fetch("/api/analyze-transcript", {
+          const res = await fetch("/api/ai", {
               method: "POST",
               headers: {"Content-Type": "application/json"},
               body: JSON.stringify({ action: "parse", textContent: targetSource.textContent, linguisticContext, forceFormat, documentIntelligence: currentIntelligence })

@@ -1,25 +1,24 @@
 import { NextResponse } from 'next/server';
-import { analyzeDocumentIntelligence } from '@/lib/rag';
+import { analyzeDocumentIntelligence, chatWithLegacyStream, generateTextEmbedding } from '@/lib/rag';
 import { ai } from '@/lib/rag/client';
+import { queryUserVectors } from '@/lib/local-vector/client';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { action, textContent, linguisticContext, forceFormat, documentIntelligence } = body;
-
-    if (!textContent) {
-      return NextResponse.json({ error: "Missing required textContent." }, { status: 400 });
-    }
+    const { action, textContent, linguisticContext, forceFormat, documentIntelligence, userId, question, history, relationalContext, systemOverrides } = body;
 
     if (action === 'analyze') {
+        if (!textContent) return NextResponse.json({ error: "Missing required textContent." }, { status: 400 });
         const intelligence = await analyzeDocumentIntelligence(textContent);
         return NextResponse.json(intelligence);
     } 
     
     if (action === 'parse') {
-        // Build speaker intelligence context if available
+        if (!textContent) return NextResponse.json({ error: "Missing required textContent." }, { status: 400 });
         let intelligenceContext = "";
         if (documentIntelligence) {
           const docType = documentIntelligence.documentType?.replace(/_/g, ' ') || "unknown";
@@ -79,10 +78,44 @@ export async function POST(req: Request) {
           },
         });
     }
+    
+    if (action === 'chat') {
+        if (!userId || !question) return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
+        
+        // 1. Vectorize the User Question
+        const questionVector = await generateTextEmbedding(question);
+        if (!questionVector || questionVector.length === 0) {
+           throw new Error("Failed to generate embedding for the question.");
+        }
+
+        // 2. Query Pinecone for the Top 10 Context Chunks natively at the Edge!
+        const queryResponse = await queryUserVectors(userId, questionVector, 40);
+
+        // 3. Assemble the perfectly scoped context string with universal perspective binding
+        const dynamicContext = queryResponse
+           .map((match: any) => {
+              const perspectiveText = match.metadata?.perspective ? `[Source Perspective: ${match.metadata.perspective}]\n` : "";
+              const contentText = match.metadata?.text || "";
+              return contentText ? `${perspectiveText}${contentText}` : "";
+           })
+           .filter((text: any) => text.length > 0)
+           .join("\n\n---\n\n");
+
+        const stream = await chatWithLegacyStream(dynamicContext, question, history || [], linguisticContext, relationalContext, systemOverrides);
+        
+        // Return a streaming response back to the client natively!
+        return new Response(stream, {
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+          },
+        });
+    }
 
     return NextResponse.json({ error: "Invalid action." }, { status: 400 });
   } catch (error: any) {
-    console.error("Transcript API Error:", error);
-    return NextResponse.json({ error: error.message || "Failed to process transcript." }, { status: 500 });
+    console.error("AI API Error:", error);
+    return NextResponse.json({ error: error.message || "Failed to process request." }, { status: 500 });
   }
 }

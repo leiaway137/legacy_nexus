@@ -558,10 +558,11 @@ export default function Home() {
     setActiveStreamText("");
     
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "chat",
           userId: user.uid,
           question: msg,
           history: chatMessages, // omit the current user prompt since it's sent as 'question'
