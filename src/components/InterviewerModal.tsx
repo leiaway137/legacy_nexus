@@ -57,87 +57,69 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
   const isolatedRecordingStartRef = useRef<number>(0);
 
   // Speech Recognition
-  const recognitionRef = useRef<any>(null);
   const [liveTranscript, setLiveTranscript] = useState("");
-  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const transcriptBufferRef = useRef<string>("");
   const isProcessingTurnRef = useRef<boolean>(false);
   const currentTurnIdRef = useRef<number>(0);
   const isAiSpeakingRef = useRef<boolean>(false);
 
+  // Whisper Web Worker STT
+  const workerRef = useRef<Worker | null>(null);
+  const [isModelLoading, setIsModelLoading] = useState(true);
+  const [modelProgress, setModelProgress] = useState<any>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const audioBufferRef = useRef<Float32Array>(new Float32Array(0));
+  const silenceCounterRef = useRef<number>(0);
+
   useEffect(() => {
-    // Initialize Web Speech API
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
+    // Initialize Whisper Web Worker
+    workerRef.current = new Worker(new URL('../lib/whisper.worker.ts', import.meta.url));
+    
+    workerRef.current.addEventListener('message', (e) => {
+      const { status, data, text, error, isFinal } = e.data;
+      if (status === 'progress') {
+         setModelProgress(data);
+      } else if (status === 'ready') {
+         setIsModelLoading(false);
+      } else if (status === 'complete') {
+         if (text && text.trim()) {
+             setLiveTranscript(text.trim());
+             if (isFinal && !isProcessingTurnRef.current) {
+                 transcriptBufferRef.current = text.trim();
+                 handleUserSilenceDetected();
+             }
+         }
+      } else if (status === 'error') {
+         console.error("Whisper Error:", error);
+         setMicError("Speech recognition model failed to run.");
+      }
+    });
 
-      recognitionRef.current.onresult = (event: any) => {
-        if (isAiSpeakingRef.current) return;
-        
-        let currentTranscript = "";
-        for (let i = 0; i < event.results.length; ++i) {
-          currentTranscript += event.results[i][0].transcript;
-        }
-        
-        if (isProcessingTurnRef.current) {
-           // User interrupted the synthesizer!
-           isProcessingTurnRef.current = false;
-           setIsAiThinking(false);
-           currentTurnIdRef.current += 1; 
-        }
+    workerRef.current.postMessage({ type: 'init' });
 
-        setLiveTranscript(currentTranscript);
-        transcriptBufferRef.current = currentTranscript;
-
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = setTimeout(() => {
-          handleUserSilenceDetected();
-        }, 4000); // 4 seconds of silence = turn over
-      };
-
-      recognitionRef.current.onerror = (event: any) => {
-        if (event.error !== 'no-speech') {
-          console.error("Speech recognition error", event.error);
+    // Cleanup
+    return () => {
+      if (workerRef.current) workerRef.current.terminate();
+      if (audioContextRef.current) audioContextRef.current.close();
+      if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.src = "";
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.stream) {
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      }
+      if (isolatedMediaRecorderRef.current && isolatedMediaRecorderRef.current.state !== "inactive") {
+        if (isolatedMediaRecorderRef.current.state === "recording") {
+           setIsolatedDurationSecs(prev => prev + (Date.now() - isolatedRecordingStartRef.current) / 1000);
         }
-      };
-
-      // Robustly handle abrupt stops (like 'no-speech' timeouts from the browser)
-      recognitionRef.current.onend = () => {
-        // Only auto-restart if we are actively recording and AI isn't speaking
-        if (isRecordingRef.current && !isAiSpeakingRef.current && !isProcessingTurnRef.current) {
-           try { recognitionRef.current.start(); } catch(e) {}
-        }
-      };
-
-      // Cleanup
-      return () => {
-        if (recognitionRef.current) {
-          recognitionRef.current.stop();
-        }
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.src = "";
-        }
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-          mediaRecorderRef.current.stop();
-        }
-        if (mediaRecorderRef.current && mediaRecorderRef.current.stream) {
-          mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-        }
-        if (isolatedMediaRecorderRef.current && isolatedMediaRecorderRef.current.state !== "inactive") {
-          if (isolatedMediaRecorderRef.current.state === "recording") {
-             setIsolatedDurationSecs(prev => prev + (Date.now() - isolatedRecordingStartRef.current) / 1000);
-          }
-          isolatedMediaRecorderRef.current.stop();
-        }
-        window.speechSynthesis.cancel();
-      };
-    } else {
-      setMicError("Browser does not support Speech Recognition. Please use Chrome.");
-    }
+        isolatedMediaRecorderRef.current.stop();
+      }
+      window.speechSynthesis.cancel();
+    };
   }, []);
 
   const handleUserSilenceDetected = () => {
@@ -211,10 +193,58 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
         setIsolatedAudioUrl(url);
       };
 
+      // --- NEW WHISPER AUDIO PROCESSING ---
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      audioContextRef.current = audioContext;
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      scriptProcessorRef.current = processor;
+
+      processor.onaudioprocess = (e) => {
+        if (!isRecordingRef.current || isAiSpeakingRef.current || isProcessingTurnRef.current) return;
+        
+        const inputData = e.inputBuffer.getChannelData(0);
+        
+        // Calculate RMS to detect silence
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
+        const rms = Math.sqrt(sum / inputData.length);
+
+        // Append to buffer
+        const newBuffer = new Float32Array(audioBufferRef.current.length + inputData.length);
+        newBuffer.set(audioBufferRef.current);
+        newBuffer.set(inputData, audioBufferRef.current.length);
+        audioBufferRef.current = newBuffer;
+
+        if (rms < 0.01) {
+           silenceCounterRef.current += 1;
+        } else {
+           silenceCounterRef.current = 0;
+        }
+
+        // Send to Whisper every ~1.5 seconds for interim results
+        // 4096 samples at 16000Hz is ~0.256s per frame. 6 frames = 1.5s
+        if (newBuffer.length > 0 && silenceCounterRef.current % 6 === 0 && silenceCounterRef.current < 12) {
+            workerRef.current?.postMessage({ type: 'transcribe', audio: newBuffer, isFinal: false });
+        }
+
+        // ~3 seconds of silence = 12 frames
+        if (silenceCounterRef.current >= 12 && audioBufferRef.current.length > 16000) {
+           workerRef.current?.postMessage({ type: 'transcribe', audio: audioBufferRef.current, isFinal: true });
+           audioBufferRef.current = new Float32Array(0);
+           silenceCounterRef.current = 0;
+        }
+      };
+
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+
       mediaRecorderRef.current.start();
       isolatedMediaRecorderRef.current.start();
       isolatedRecordingStartRef.current = Date.now();
       setHasStarted(true);
+      setIsRecording(true);
+      isRecordingRef.current = true;
       
       if (initialPrompt && historyRef.current.length === 0) {
           // Immediately set AI's first turn to the initial prompt (typically a gap prompt)
@@ -256,10 +286,7 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
   };
 
   const toggleMic = () => {
-    if (!recognitionRef.current) return alert("Speech recognition not supported in this browser.");
-
     if (isRecordingRef.current) {
-      recognitionRef.current.stop();
       setIsRecording(false);
       isRecordingRef.current = false;
       
@@ -278,7 +305,8 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
       setIsAiSpeaking(false);
       isAiSpeakingRef.current = false;
       setLiveTranscript("");
-      recognitionRef.current.start();
+      audioBufferRef.current = new Float32Array(0);
+      silenceCounterRef.current = 0;
       setIsRecording(true);
       isRecordingRef.current = true;
     }
@@ -295,9 +323,6 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
     
     setIsAiThinking(false);
     
-    if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch(e) {}
-    }
     // Maintain recording state through AI turn so the microphone safely auto-restarts and stays visibly active
     isProcessingTurnRef.current = false;
     isAiSpeakingRef.current = true;
@@ -373,14 +398,11 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
                       isolatedRecordingStartRef.current = Date.now();
                       isolatedMediaRecorderRef.current.resume();
                   }
-                  if (recognitionRef.current && isRecordingRef.current) {
-                    try {
+                  if (isRecordingRef.current) {
                       setLiveTranscript("");
                       transcriptBufferRef.current = "";
-                      recognitionRef.current.start();
-                    } catch(e) {
-                      console.error("Failed to restart mic", e);
-                    }
+                      audioBufferRef.current = new Float32Array(0);
+                      silenceCounterRef.current = 0;
                   }
                 }, 500);
             };
@@ -411,15 +433,12 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
               isolatedRecordingStartRef.current = Date.now();
               isolatedMediaRecorderRef.current.resume();
           }
-          if (recognitionRef.current && !isRecording) {
-             try {
-                setLiveTranscript("");
-                transcriptBufferRef.current = "";
-                setIsRecording(true);
-                recognitionRef.current.start();
-             } catch(e) {
-                console.error("Failed to fallback restart mic", e);
-             }
+          if (!isRecording) {
+             setLiveTranscript("");
+             transcriptBufferRef.current = "";
+             audioBufferRef.current = new Float32Array(0);
+             silenceCounterRef.current = 0;
+             setIsRecording(true);
           }
        }, 500);
     };
@@ -550,10 +569,23 @@ export function InterviewerModal({ userId, onClose, onSave, initialPrompt }: Int
 
               <button 
                 onClick={startSessionRecording}
-                className="px-8 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-full shadow-lg transition-transform active:scale-95 flex items-center gap-2"
+                disabled={isModelLoading}
+                className="px-8 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-full shadow-lg transition-transform active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Play fill="currentColor" size={16}/> Start Interview
+                {isModelLoading ? <><Loader2 className="animate-spin" size={16}/> Loading AI Model...</> : <><Play fill="currentColor" size={16}/> Start Interview</>}
               </button>
+              
+              {isModelLoading && modelProgress && (
+                <div className="w-full max-w-sm">
+                  <div className="flex justify-between text-xs text-zinc-500 mb-1">
+                    <span>Downloading local AI components...</span>
+                    <span>{Math.round(modelProgress.progress || 0)}%</span>
+                  </div>
+                  <div className="w-full bg-zinc-200 dark:bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                    <div className="bg-purple-500 h-full transition-all" style={{width: `${modelProgress.progress || 0}%`}} />
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-6 pb-20">

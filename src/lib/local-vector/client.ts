@@ -88,8 +88,10 @@ export const queryUserVectors = async (userId: string, vector: number[], topK: n
   const table = await getVectorTable();
   if (!table) return [];
 
+  // @ts-ignore
   const results = await table.search(vector)
-    .distanceType('cosine')
+    // @ts-ignore
+    .metricType('cosine')
     .where(`userId = '${userId}'`)
     .limit(topK)
     .toArray();
