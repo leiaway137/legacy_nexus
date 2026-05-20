@@ -70,7 +70,7 @@ export default function SourceViewerPage() {
               const analyzeRes = await fetch("/api/analyze-transcript", {
                   method: "POST",
                   headers: {"Content-Type": "application/json"},
-                  body: JSON.stringify({ textContent: targetSource.textContent })
+                  body: JSON.stringify({ action: "analyze", textContent: targetSource.textContent })
               });
               
               if (!analyzeRes.ok) {
@@ -96,10 +96,10 @@ export default function SourceViewerPage() {
              linguisticContext = [profile?.culturalHeritage, profile?.primaryLanguage, profile?.secondaryLanguages].filter(Boolean).join(" | ");
           }
 
-          const res = await fetch("/api/parse-transcript", {
+          const res = await fetch("/api/analyze-transcript", {
               method: "POST",
               headers: {"Content-Type": "application/json"},
-              body: JSON.stringify({ textContent: targetSource.textContent, linguisticContext, forceFormat, documentIntelligence: currentIntelligence })
+              body: JSON.stringify({ action: "parse", textContent: targetSource.textContent, linguisticContext, forceFormat, documentIntelligence: currentIntelligence })
           });
 
           if (!res.ok) {
