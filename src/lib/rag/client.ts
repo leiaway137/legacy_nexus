@@ -16,10 +16,21 @@ export const fastAi = new OpenAI({
 export const ai = {
   models: {
     embedContent: async (args: any) => {
-      const input = Array.isArray(args.contents) ? args.contents : [args.contents];
+      let input = Array.isArray(args.contents) ? args.contents : [args.contents];
+      
+      // Auto-prefix for Nomic to fix retrieval asymmetry
+      input = input.map((text: string) => {
+         if (text.startsWith('search_query: ') || text.startsWith('search_document: ')) return text;
+         if (text.length < 200 && !text.includes('[Legacy Entry]')) {
+             return 'search_query: ' + text;
+         }
+         return 'search_document: ' + text;
+      });
+
       const res = await fastAi.embeddings.create({
-        model: "text-embedding-nomic-embed-text-v1.5", // Route to LM Studio embedding model
-        input: input
+        model: "text-embedding-nomic-embed-text-v1.5", // Revert to Nomic
+        input: input,
+        encoding_format: "float" // CRITICAL: Prevents LM Studio/OpenAI SDK mismatch that causes array of zeroes!
       });
       return {
         embeddings: res.data.map((d: any) => ({ values: d.embedding }))
@@ -56,7 +67,9 @@ export const ai = {
       
       return (async function* () {
          for await (const chunk of res) {
-            yield { text: chunk.choices[0]?.delta?.content || "" };
+            const delta = chunk.choices[0]?.delta as any;
+            const text = delta?.content || "";
+            yield { text };
          }
       })();
     }

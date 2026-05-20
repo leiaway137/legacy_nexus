@@ -38,7 +38,7 @@ export const authOptions = {
               );
               
               // Seed the user with dummy onboarding transcripts
-              seedUserOnboarding(newUserId).catch(e => console.error(e));
+              await seedUserOnboarding(newUserId).catch(e => console.error(e));
               
               return { id: newUserId, email: credentials.email };
            }

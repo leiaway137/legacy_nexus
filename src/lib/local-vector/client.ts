@@ -89,6 +89,7 @@ export const queryUserVectors = async (userId: string, vector: number[], topK: n
   if (!table) return [];
 
   const results = await table.search(vector)
+    .distanceType('cosine')
     .where(`userId = '${userId}'`)
     .limit(topK)
     .toArray();
