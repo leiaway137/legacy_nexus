@@ -6,9 +6,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Plus, User, Mail, ShieldCheck, Phone, Edit3, Trash2, Search, Upload, RefreshCw, Loader2, Quote, Sparkles, Star, X } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { useBackgroundJobs } from "@/components/BackgroundJobProvider";
-import { fetchContacts, saveContact, deleteContact, fetchUserSources, Contact, NotebookSource, updateContactAccessTier } from "@/lib/mongo/db";
+import { fetchContacts, saveContact, deleteContact, fetchUserSources, Contact, NotebookSource, updateContactAccessTier } from "@/lib/local-db/db";
 import { parseCSV, parseVCF, correlateContacts } from "@/lib/contacts";
-import { fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/mongo/db";
+import { fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/local-db/db";
 import { recompileStoriesWithContactsAction } from "@/app/actions";
 import { useTranslations } from 'next-intl';
 

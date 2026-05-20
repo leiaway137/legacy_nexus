@@ -1,8 +1,8 @@
 "use server";
 
 import { processTranscriptForRag, generateInterviewQuestions, generateSynopsis, TranscriptChunk, generateWisdomSummaries, chatWithLegacy, WisdomSummary, conductActiveInterview, extractHighFidelityStories, HighFidelityStory, reduceHighFidelityStories, recompileHighFidelityStories, generateTextEmbedding, generateBatchTextMappings, identifyDocumentPerspective, reduceDashboardOverview, DashboardOverview, generateLegacyIdentityContext, generateDriftInsight, generateLegacyDeepDive, extractDemographicsFromTranscript, generateSandersonAdaptation, generatePodcastTranscript, generateAnonymizedStories, generateUniversalCastMapping } from "@/lib/rag";
-import { getPineconeIndex } from "@/lib/pinecone/client";
-import { fetchUserProfile } from "@/lib/mongo/db";
+import { upsertVectors, deleteUserVectors } from "@/lib/local-vector/client";
+import { fetchUserProfile } from "@/lib/local-db/db";
 import { decryptString } from "@/lib/encryption";
 // @ts-ignore - Bypass Turbopack static ESM export resolution
 import pdfParseModule from "pdf-parse/lib/pdf-parse.js";
@@ -81,9 +81,7 @@ export async function uploadAndExtractAction(formData: FormData): Promise<string
 
 export async function embedStoriesToPineconeAction(userId: string, sourceId: string, stories: HighFidelityStory[]): Promise<boolean> {
   try {
-    const index = getPineconeIndex();
     const vectors = [];
-    
     const BATCH_LIMIT = 50;
     for (let i = 0; i < stories.length; i += BATCH_LIMIT) {
         const batchStories = stories.slice(i, i + BATCH_LIMIT);
@@ -115,17 +113,9 @@ export async function embedStoriesToPineconeAction(userId: string, sourceId: str
         }
     }
     
-    // Upsert vectors in batches to Pinecone using the userId as a security namespace!
+    // Upsert vectors in batches to Local Vector DB using the userId as a security namespace!
     if (vectors.length > 0) {
-       const batchSize = 100;
-       const ns = index.namespace(userId);
-       for (let i = 0; i < vectors.length; i += batchSize) {
-          const batch = vectors.slice(i, i + batchSize);
-          await ns.upsert(batch as any).catch(async () => {
-             // Fallback for newer v5+ Pinecone SDKs that strictly require options object wrapper
-             await ns.upsert({ records: batch } as any);
-          });
-       }
+       await upsertVectors(userId, vectors);
     }
     
     return true;
@@ -139,13 +129,11 @@ export async function embedStoriesToPineconeAction(userId: string, sourceId: str
 
 export async function deleteAllPineconeResourcesAction(userId: string): Promise<boolean> {
   try {
-    const index = getPineconeIndex();
-    const ns = index.namespace(userId);
-    await ns.deleteAll();
-    console.log(`[Pinecone GC] Scrubbed ENTIRE namespace for user: ${userId}`);
+    await deleteUserVectors(userId);
+    console.log(`[Local Vector DB] Scrubbed ENTIRE namespace for user: ${userId}`);
     return true;
   } catch (error) {
-    console.error("Failed to delete all Pinecone vectors:", error);
+    console.error("Failed to delete all local vectors:", error);
     return false;
   }
 }
@@ -290,7 +278,7 @@ export async function generateElevenLabsAudioAction(userId: string, text: string
         // Next.js Server Components bypass the API payload scrubbing. If we need to read the raw vault,
         // we should query the DB directly, as fetchUserProfile intentionally destroys the encrypted payload!
         // To keep it simple, we import MongoDB logic inline
-        const { getDb } = require("@/lib/mongo/db");
+        const { getDb } = require("@/lib/local-db/db");
         const db = await getDb();
         const rawProfile = await db.collection("user_profiles").findOne({ userId });
         if (rawProfile && rawProfile.encryptedTtsApiKey) {
@@ -344,7 +332,7 @@ export async function generateResembleAudioAction(userId: string, text: string):
   let projectId = "";
   let voiceId = "";
   
-  const { getDb } = require("@/lib/mongo/db");
+  const { getDb } = require("@/lib/local-db/db");
   const db = await getDb();
   const rawProfile = await db.collection("user_profiles").findOne({ userId });
   

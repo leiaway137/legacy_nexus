@@ -8,7 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { InterviewerModal } from "@/components/InterviewerModal";
 import { HighFidelityStory } from "@/lib/rag";
-import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights, saveChatHistory, fetchContacts, saveContact, uploadNotebookSource, type Contact } from "@/lib/mongo/db";
+import { fetchUserSources, fetchHighFidelityStories, saveHighFidelityStories, fetchUserProfile, updateSourceSyncStatus, saveLegacyInsights, saveChatHistory, fetchContacts, saveContact, uploadNotebookSource, type Contact } from "@/lib/local-db/db";
 import { extractHighFidelityStoriesAction, reduceHighFidelityStoriesAction, generateLegacyIdentityAction, generateDriftInsightAction, generateLegacyDeepDiveAction, deleteAllPineconeResourcesAction, embedStoriesToPineconeAction } from "@/app/actions";
 import { computeCentroidMath, analyzeCrossMetricPattern, RECOGNIZED_ERAS } from "@/lib/math";
 import { useOnboarding } from "@/components/OnboardingProvider";
@@ -578,7 +578,7 @@ export default function StoriesPage() {
             <div className="bg-indigo-50 dark:bg-indigo-950/20 rounded-3xl p-8 md:p-12 border border-indigo-100 dark:border-indigo-900/50 flex flex-col items-center justify-center text-center space-y-4">
               <Sparkles className="w-12 h-12 text-indigo-400 animate-pulse" />
               <h2 className="text-2xl font-bold text-indigo-950 dark:text-indigo-300">{t('timelineWaiting')}</h2>
-              <p className="text-indigo-700 dark:text-indigo-400 max-w-md" dangerouslySetInnerHTML={{ __html: t('timelineWaitingDesc') }} />
+              <p className="text-indigo-700 dark:text-indigo-400 max-w-md" dangerouslySetInnerHTML={{ __html: t.raw('timelineWaitingDesc') }} />
             </div>
           )}
 

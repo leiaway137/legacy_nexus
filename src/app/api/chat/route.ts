@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { chatWithLegacyStream, generateTextEmbedding } from '@/lib/rag';
-import { getPineconeIndex } from '@/lib/pinecone/client';
+import { queryUserVectors } from '@/lib/local-vector/client';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Extend Vercel Hobby Timeout from 10s default to 60s max
@@ -19,15 +19,10 @@ export async function POST(req: Request) {
     }
 
     // 2. Query Pinecone for the Top 10 Context Chunks natively at the Edge!
-    const index = getPineconeIndex();
-    const queryResponse = await (index.namespace(userId).query as any)({
-        vector: questionVector,
-        topK: 40,
-        includeMetadata: true
-    });
+    const queryResponse = await queryUserVectors(userId, questionVector, 40);
 
     // 3. Assemble the perfectly scoped context string with universal perspective binding
-    const dynamicContext = (queryResponse.matches || [])
+    const dynamicContext = queryResponse
        .map((match: any) => {
           const perspectiveText = match.metadata?.perspective ? `[Source Perspective: ${match.metadata.perspective}]\n` : "";
           const contentText = match.metadata?.text || "";

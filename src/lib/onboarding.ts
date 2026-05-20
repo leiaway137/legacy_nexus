@@ -190,7 +190,19 @@ export async function seedUserOnboarding(userId: string) {
         // Critically, we must push the pre-populated stories into the vector database 
         // to establish the baseline RAG context for the Legacy Overview Chat engine!
         try {
-            await embedStoriesToPineconeAction(userId, "onboarding-seed", DUMMY_STORIES);
+            const { upsertVectors } = require("@/lib/local-vector/client");
+            const vectorsData = require("./onboarding-vectors.json");
+            const vectors = vectorsData.map((v: any) => ({
+                id: `story-${v.storyId}`,
+                values: v.values,
+                metadata: {
+                    text: v.text,
+                    sourceId: "onboarding-seed",
+                    era: v.era,
+                    perspective: "Synthesized Legacy Content"
+                }
+            }));
+            await upsertVectors(userId, vectors);
         } catch (embedError) {
             console.error("Failed to push onboarding seed to Pinecone", embedError);
         }

@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginModule } from "@/components/LoginModule";
 import { HighFidelityStory } from "@/lib/rag";
-import { fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/mongo/db";
+import { fetchHighFidelityStories, saveHighFidelityStories } from "@/lib/local-db/db";
 import { generateSandersonChapterAction } from "@/app/actions";
 import ReactMarkdown from "react-markdown";
 import { useTranslations } from 'next-intl';

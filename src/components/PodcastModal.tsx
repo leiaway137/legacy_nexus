@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { X, Play, Square, Loader2, Save, FileAudio, RefreshCw, AudioLines } from "lucide-react";
 import { generatePodcastTranscriptAction, generateElevenLabsAudioAction, generateResembleAudioAction } from "@/app/actions";
-import { AudioPodcast, fetchAudioPodcasts, saveAudioPodcast, fetchUserSources, fetchUserProfile, updateUserProfile, UserProfile } from "@/lib/mongo/db";
+import { AudioPodcast, fetchAudioPodcasts, saveAudioPodcast, fetchUserSources, fetchUserProfile, updateUserProfile, UserProfile } from "@/lib/local-db/db";
 import { Settings } from "lucide-react";
 
 interface PodcastModalProps {
